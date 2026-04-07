@@ -38,7 +38,7 @@
     ubtu22cis_rule_5_3_1: false    # Don't break Azure's custom SSH key directories
     
     # WHITELIST THE USERS
-    ubtu22cis_sshd_allow_users: "packer azureuser ubuntu"
+    ubtu22cis_sshd_allow_users: "packer azureuser ubuntu sysadmin"
 
     # 6. Disable AppArmor/Auditd reboots during the pipeline
     ubtu22cis_reboot_required: false
