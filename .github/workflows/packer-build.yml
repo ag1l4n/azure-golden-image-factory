@@ -1,0 +1,31 @@
+name: DevSecOps Golden Image Pipeline
+
+on:
+  push:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+jobs:
+  bake-golden-image:
+    name: Build CIS Hardened RHEL
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v3
+
+      - name: Authenticate to Azure
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Setup HashiCorp Packer
+        uses: hashicorp/setup-packer@main
+        with:
+          version: 'latest'
+
+      - name: Packer Init
+        run: packer init .
+
+      - name: Build RHEL 9 Golden Image
+        run: packer build rhel.pkr.hcl
