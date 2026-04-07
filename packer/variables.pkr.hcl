@@ -10,7 +10,7 @@ variable "resource_group" {
 
 variable "location" {
   type    = string
-  default = "eastus"
+  default = "southcentralus"
 }
 
 variable "gallery_name" {
