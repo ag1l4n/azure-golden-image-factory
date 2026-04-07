@@ -21,7 +21,7 @@ source "azure-arm" "ubuntu" {
   image_publisher                   = "Canonical"
   image_offer                       = "0001-com-ubuntu-server-jammy"
   image_sku                         = "22_04-lts-gen2"
-  vm_size                           = "Standard_B2s"
+  vm_size                           = "Standard_D2as_v7"
   
   shared_image_gallery_destination {
     subscription         = var.subscription_id
