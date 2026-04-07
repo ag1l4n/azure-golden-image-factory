@@ -1,6 +1,6 @@
 variable "subscription_id" {
   type    = string
-  default = "1ea6f3b4-a4c8-468f-af08-b0d53e692108"
+  default = "8f1d7ab7-0a79-4a10-a744-b36a4f8f4123"
 }
 
 variable "resource_group" {
@@ -10,10 +10,10 @@ variable "resource_group" {
 
 variable "location" {
   type    = string
-  default = "southeastasia"
+  default = "eastus"
 }
 
 variable "gallery_name" {
   type    = string
-  default = "hardenedimageswblsec"
+  default = "galhardening"
 }
