@@ -20,7 +20,7 @@ source "azure-arm" "rhel-cis" {
   # RHEL 9 Marketplace Image
   image_publisher = "RedHat"
   image_offer     = "RHEL"
-  image_sku       = "9-lvm"
+  image_sku       = "9-lvm-gen2"
   
   os_type         = "Linux"
   vm_size         = "Standard_D2as_v7"
