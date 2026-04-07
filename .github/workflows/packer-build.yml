@@ -34,8 +34,8 @@ jobs:
 
       - name: Packer Init Ubuntu
         run: packer init .
-        working-directory: ./packer-ubuntu
+        working-directory: ./packer
 
       - name: Build Ubuntu 22.04 Golden Image
         run: packer build .                  
-        working-directory: ./packer-ubuntu
+        working-directory: ./packer
