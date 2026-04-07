@@ -15,8 +15,7 @@ source "azure-arm" "rhel-cis" {
   use_azure_cli_auth = true
   
   # THE FIX: Tell Packer where to put the temporary build VM
-  build_resource_group_name = "rg-hardening-pipeline"
-  location                  = "eastus"
+  build_resource_group_name = "var.resource_group"
   
   # RHEL 9 Marketplace Image
   image_publisher = "RedHat"
@@ -27,15 +26,15 @@ source "azure-arm" "rhel-cis" {
   vm_size         = "Standard_D2s_v3"
   
   shared_image_gallery_destination {
-    resource_group        = "rg-hardening-pipeline"
-    gallery_name          = "hardenedimageswblsec"
+    resource_group        = "var.resource_group"
+    gallery_name          = "galhardening"
     image_name            = "rhel-9-cis-l1"
     image_version         = "1.0.0"
     replication_regions   = ["eastus"]
   }
   
   managed_image_name                = "packer-rhel-9-cis-tmp"
-  managed_image_resource_group_name = "rg-hardening-pipeline"
+  managed_image_resource_group_name = "var.resource_group"
 }
 
 build {
