@@ -16,6 +16,7 @@ source "azure-arm" "ubuntu" {
   
   subscription_id                   = var.subscription_id
   build_resource_group_name         = var.resource_group
+  location                          = "eastus"
   
   os_type                           = "Linux"
   image_publisher                   = "Canonical"
