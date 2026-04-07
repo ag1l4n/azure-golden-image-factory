@@ -29,7 +29,7 @@ source "azure-arm" "ubuntu" {
     gallery_name         = var.gallery_name
     image_name           = "ubuntu-2204-cis-l1"
     image_version        = "1.0.0"
-    replication_regions  = ["eastus"]
+    replication_regions  = [var.location]
   }
 }
 
