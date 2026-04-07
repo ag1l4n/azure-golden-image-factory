@@ -1,0 +1,53 @@
+---
+- name: Apply CIS Level 1 Baseline to RHEL 9
+  hosts: default
+  become: yes
+  
+  vars:
+    # 1. Enable the Level 1 Baseline
+    rhel9cis_level_1: true
+    rhel9cis_level_2: false
+
+    # 2. Azure Provisioning & Cloud-Init Exemptions
+    rhel9cis_rule_1_1_1_1: false  # cramfs
+    rhel9cis_rule_1_1_1_2: false  # freevxfs
+    rhel9cis_rule_1_1_1_3: false  # jffs2
+    rhel9cis_rule_1_1_1_4: false  # hfs
+    rhel9cis_rule_1_1_1_5: false  # hfsplus
+    rhel9cis_rule_1_1_1_6: false  # squashfs
+    rhel9cis_rule_1_1_1_7: false  # udf (CRITICAL for cloud-init)
+    
+    # 3. Packer & SSH Exemptions
+    rhel9cis_rule_5_2_4: false    # Allow passwordless sudo for packer
+    rhel9cis_rule_5_3_1: false    
+    rhel9cis_rule_5_3_2: false    
+    rhel9cis_sshd_allow_users: "packer azureuser"
+
+    # 4. RHEL Specific Configurations (THE FIX)
+    rhel9cis_authselect_custom_profile_name: "custom_cis_profile"
+
+    # 5. Prevent Reboots during Packer execution
+    rhel9cis_reboot_required: false
+
+  roles:
+    - role: RHEL9-CIS
+
+  # THE GOLD STANDARD FIX: Prevent RHEL from locking out the Azure Agent
+  post_tasks:
+    - name: DevSecOps Override - Disable firewalld and nftables to allow Azure NSG control
+      systemd:
+        name: "{{ item }}"
+        state: stopped
+        enabled: no
+        masked: yes
+      loop:
+        - firewalld
+        - nftables
+      ignore_errors: true
+
+    - name: DevSecOps Override - Force azureuser into SSH VIP List
+      lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: '^AllowUsers'
+        line: 'AllowUsers azureuser packer'
+        state: present
