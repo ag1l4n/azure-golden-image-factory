@@ -23,7 +23,7 @@ source "azure-arm" "rhel-cis" {
   image_sku       = "9-lvm-gen2"
   
   os_type         = "Linux"
-  vm_size         = "Standard_A2_v2"
+  vm_size         = "Standard_B2s"
   
   shared_image_gallery_destination {
     subscription          = var.subscription_id
