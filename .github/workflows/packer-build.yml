@@ -29,13 +29,13 @@ jobs:
         working-directory: ./packer-rhel
 
       - name: Build RHEL 9 Golden Image
-        run: packer build rhel.pkr.hcl
+        run: packer build .                  
         working-directory: ./packer-rhel
 
       - name: Packer Init Ubuntu
         run: packer init .
-        working-directory: ./packer
-      
+        working-directory: ./packer-ubuntu
+
       - name: Build Ubuntu 22.04 Golden Image
-        run: packer build ubuntu.pkr.hcl
-        working-directory: ./packer
+        run: packer build .                  
+        working-directory: ./packer-ubuntu
