@@ -31,7 +31,7 @@ source "azure-arm" "rhel-cis" {
     gallery_name          = "hardenedimageswblsec"
     image_name            = "rhel-9-cis-l1"
     image_version         = "1.0.0"
-    replication_regions   = ["southeastasia"]
+    replication_regions   = ["eastus"]
   }
   
   managed_image_name                = "packer-rhel-9-cis-tmp"
