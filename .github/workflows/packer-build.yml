@@ -24,18 +24,18 @@ jobs:
         with:
           version: 'latest'
 
-     # - name: Packer Init RHEL
-     #   run: packer init .
-     #   working-directory: ./packer-rhel
-
-     # - name: Build RHEL 9 Golden Image
-     #   run: packer build .                  
-     #   working-directory: ./packer-rhel
-
-      - name: Packer Init Ubuntu
+      - name: Packer Init RHEL
         run: packer init .
-        working-directory: ./packer
+        working-directory: ./packer-rhel
 
-      - name: Build Ubuntu 22.04 Golden Image
+      - name: Build RHEL 9 Golden Image
         run: packer build .                  
-        working-directory: ./packer
+        working-directory: ./packer-rhel
+
+     # - name: Packer Init Ubuntu
+     #   run: packer init .
+     #   working-directory: ./packer
+
+     # - name: Build Ubuntu 22.04 Golden Image
+     #   run: packer build .                  
+     #   working-directory: ./packer
