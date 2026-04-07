@@ -20,7 +20,7 @@ source "azure-arm" "rhel-cis" {
   # RHEL 9 Marketplace Image
   image_publisher = "RedHat"
   image_offer     = "RHEL"
-  image_sku       = "9-lvm-gen2"
+  image_sku       = "9-lvm"
   
   os_type         = "Linux"
   vm_size         = "Standard_D2as_v7"
@@ -29,7 +29,7 @@ source "azure-arm" "rhel-cis" {
     subscription          = var.subscription_id
     resource_group        = var.resource_group
     gallery_name          = var.gallery_name
-    image_name            = "rhel-9-cis-l1"
+    image_name            = "rhel-nvme-cis"
     image_version         = "1.0.0"
     replication_regions   = [var.location]
   }
