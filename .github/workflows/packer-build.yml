@@ -24,8 +24,14 @@ jobs:
         with:
           version: 'latest'
 
-      - name: Packer Init
-        run: packer init .
+      - name: Packer Init RHEL
+        run: packer init ./packer-rhel
 
       - name: Build RHEL 9 Golden Image
-        run: packer build rhel.pkr.hcl
+        run: packer build ./packer-rhel/rhel.pkr.hcl
+
+      - name: Packer Init Ubuntu
+        run: packer init ./packer
+      
+      - name: Build Ubuntu 22.04 Golden Image
+        run: packer build ./packer/ubuntu.pkr.hcl
