@@ -27,7 +27,7 @@ source "azure-arm" "ubuntu" {
     subscription         = var.subscription_id
     resource_group       = var.resource_group
     gallery_name         = var.gallery_name
-    image_name           = "ubuntu-2204-cis-l1"
+    image_name           = "ubuntu-nvme-cis"
     image_version        = "1.0.0"
     replication_regions  = [var.location]
   }
