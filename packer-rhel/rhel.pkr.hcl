@@ -16,6 +16,7 @@ source "azure-arm" "rhel-cis" {
   
   # THE FIX: Tell Packer where to put the temporary build VM
   build_resource_group_name = "rg-hardening-pipeline"
+  location                  = "eastus"
   
   # RHEL 9 Marketplace Image
   image_publisher = "RedHat"
