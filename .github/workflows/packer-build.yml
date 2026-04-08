@@ -32,6 +32,45 @@ jobs:
         run: packer build .                  
         working-directory: ./packer-rhel
 
+        # --- RHEL COMPLIANCE SCAN ---
+      - name: Deploy RHEL Ephemeral VM
+        run: |
+          IMAGE_ID=$(az sig image-definition show --resource-group rg-hardening-pipeline --gallery-name galhardening --gallery-image-definition rhel-nvme-cis --query id --output tsv)
+          
+          az vm create \
+            --resource-group rg-hardening-pipeline \
+            --name scan-rhel-vm \
+            --image $IMAGE_ID \
+            --admin-username sysadmin \
+            --ssh-key-values ~/.ssh/scanner_rsa.pub \
+            --location southcentralus \
+            --size Standard_D2as_v7
+            
+          VM_IP=$(az vm show -d -g rg-hardening-pipeline -n scan-rhel-vm --query publicIps -o tsv)
+          echo "RHEL_IP=$VM_IP" >> $GITHUB_ENV
+          sleep 30
+
+      - name: Run OpenSCAP & Download Report
+        run: |
+          ssh -o StrictHostKeyChecking=no -i ~/.ssh/scanner_rsa sysadmin@${{ env.RHEL_IP }} << 'EOF'
+            sudo dnf install -y openscap-scanner scap-security-guide
+            sudo oscap xccdf eval --profile xccdf_org.ssgproject.content_profile_cis --report /home/sysadmin/rhel-cis-report.html /usr/share/xml/scap/ssg/content/ssg-rhel9-ds.xml || true
+          EOF
+          
+          scp -o StrictHostKeyChecking=no -i ~/.ssh/scanner_rsa sysadmin@${{ env.RHEL_IP }}:/home/sysadmin/rhel-cis-report.html ./rhel-cis-report.html
+
+      - name: Destroy RHEL Ephemeral VM
+        if: always()
+        run: |
+          az vm delete --resource-group rg-hardening-pipeline --name scan-rhel-vm --yes --no-wait
+          az network public-ip list --resource-group rg-hardening-pipeline --query "[?ipConfiguration==null].[name]" -o tsv | xargs -I {} az network public-ip delete --resource-group rg-hardening-pipeline --name {} || true
+
+      - name: Upload RHEL HTML Report to GitHub
+        uses: actions/upload-artifact@v4
+        with:
+          name: rhel-cis-compliance-report
+          path: ./rhel-cis-report.html
+
      # - name: Packer Init Ubuntu
      #   run: packer init .
      #   working-directory: ./packer
@@ -39,3 +78,49 @@ jobs:
      # - name: Build Ubuntu 22.04 Golden Image
      #   run: packer build .                  
      #   working-directory: ./packer
+     # --- UBUNTU COMPLIANCE SCAN ---
+      - name: Generate Ephemeral SSH Key
+        run: ssh-keygen -t rsa -b 4096 -f ~/.ssh/scanner_rsa -N ""
+
+      - name: Deploy Ubuntu Ephemeral VM
+        run: |
+          IMAGE_ID=$(az sig image-definition show --resource-group rg-hardening-pipeline --gallery-name galhardening --gallery-image-definition ubuntu-nvme-cis --query id --output tsv)
+          
+          az vm create \
+            --resource-group rg-hardening-pipeline \
+            --name scan-ubuntu-vm \
+            --image $IMAGE_ID \
+            --admin-username sysadmin \
+            --ssh-key-values ~/.ssh/scanner_rsa.pub \
+            --location southcentralus \
+            --size Standard_D2as_v7
+            
+          VM_IP=$(az vm show -d -g rg-hardening-pipeline -n scan-ubuntu-vm --query publicIps -o tsv)
+          echo "UBUNTU_IP=$VM_IP" >> $GITHUB_ENV
+          sleep 30 # Give the VM time to fully boot the SSH service
+
+      - name: Run OpenSCAP & Download Report
+        run: |
+          ssh -o StrictHostKeyChecking=no -i ~/.ssh/scanner_rsa sysadmin@${{ env.UBUNTU_IP }} << 'EOF'
+            sudo apt-get update
+            sudo apt-get install -y libopenscap8 ssg-ubuntu2204
+            # Run scan and force exit code 0 so the pipeline doesn't crash if vulnerabilities are found
+            sudo oscap xccdf eval --profile xccdf_org.ssgproject.content_profile_cis_level1_server --report /home/sysadmin/ubuntu-cis-report.html /usr/share/xml/scap/ssg/content/ssg-ubuntu2204-ds.xml || true
+          EOF
+          
+          # Secure Copy (SCP) the report back to the GitHub Runner
+          scp -o StrictHostKeyChecking=no -i ~/.ssh/scanner_rsa sysadmin@${{ env.UBUNTU_IP }}:/home/sysadmin/ubuntu-cis-report.html ./ubuntu-cis-report.html
+
+      - name: Destroy Ubuntu Ephemeral VM
+        if: always() # CRITICAL: This ensures the VM is deleted even if a previous step fails!
+        run: |
+          az vm delete --resource-group rg-hardening-pipeline --name scan-ubuntu-vm --yes --no-wait
+          # Clean up any orphaned Public IPs to save our quota
+          az network public-ip list --resource-group rg-hardening-pipeline --query "[?ipConfiguration==null].[name]" -o tsv | xargs -I {} az network public-ip delete --resource-group rg-hardening-pipeline --name {} || true
+
+      - name: Upload Ubuntu HTML Report to GitHub
+        uses: actions/upload-artifact@v4
+        with:
+          name: ubuntu-cis-compliance-report
+          path: ./ubuntu-cis-report.html
+     
