@@ -55,7 +55,7 @@ jobs:
             --admin-username sysadmin \
             --ssh-key-values ~/.ssh/scanner_key.pub \
             --location southcentralus \
-            --size Standard_D2as_v7
+            --size Standard_D2as_v7 \
             --nic-delete-option delete \
             --os-disk-delete-option delete
             
@@ -112,7 +112,7 @@ jobs:
             --admin-username sysadmin \
             --ssh-key-values ~/.ssh/scanner_key.pub \
             --location southcentralus \
-            --size Standard_D2as_v7
+            --size Standard_D2as_v7 \
             --nic-delete-option delete \
             --os-disk-delete-option delete
             
