@@ -124,7 +124,7 @@ jobs:
         run: |
           ssh -o StrictHostKeyChecking=no -i ~/.ssh/scanner_key sysadmin@${{ env.RHEL_IP }} << 'EOF'
             sudo dnf install -y openscap-scanner scap-security-guide
-            sudo oscap xccdf eval --profile xccdf_org.ssgproject.content_profile_cis --report /tmp/rhel-cis-report.html /usr/share/xml/scap/ssg/content/ssg-rhel9-ds.xml || true
+            sudo oscap xccdf eval --profile xccdf_org.ssgproject.content_profile_cis_server_l1 --report /tmp/rhel-cis-report.html /usr/share/xml/scap/ssg/content/ssg-rhel9-ds.xml || true
 
             sudo mv /tmp/rhel-cis-report.html /home/sysadmin/rhel-cis-report.html
             sudo chown sysadmin:sysadmin /home/sysadmin/rhel-cis-report.html
