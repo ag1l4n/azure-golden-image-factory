@@ -32,7 +32,7 @@ jobs:
         working-directory: ./packer-rhel
 
       - name: Build RHEL 9 Golden Image
-        run: packer build -var "image_version=1.0.${{ github.run_number }}" .                  
+        run: packer build -force -var "image_version=1.0.${{ github.run_number }}" .                  
         working-directory: ./packer-rhel
         
       - name: Packer Init Ubuntu
@@ -40,7 +40,7 @@ jobs:
         working-directory: ./packer
 
       - name: Build Ubuntu 22.04 Golden Image
-        run: packer build -var "image_version=1.0.${{ github.run_number }}" .                  
+        run: packer build -force -var "image_version=1.0.${{ github.run_number }}" .                  
         working-directory: ./packer
      
      # --- UBUNTU COMPLIANCE SCAN ---
