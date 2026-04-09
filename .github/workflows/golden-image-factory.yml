@@ -1,4 +1,4 @@
-name: DevSecOps Golden Image Pipeline
+name: Golden Image Factory Pipeline
 
 on:
   push:
