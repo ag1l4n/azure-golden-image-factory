@@ -35,13 +35,13 @@ jobs:
         run: packer build .                  
         working-directory: ./packer-rhel
         
-     # - name: Packer Init Ubuntu
-     #   run: packer init .
-     #   working-directory: ./packer
+      - name: Packer Init Ubuntu
+        run: packer init .
+        working-directory: ./packer
 
-     # - name: Build Ubuntu 22.04 Golden Image
-     #   run: packer build .                  
-     #   working-directory: ./packer
+      - name: Build Ubuntu 22.04 Golden Image
+        run: packer build .                  
+        working-directory: ./packer
      
      # --- UBUNTU COMPLIANCE SCAN ---
       - name: Generate Ephemeral SSH Key
