@@ -28,7 +28,7 @@ source "azure-arm" "ubuntu" {
     resource_group       = var.resource_group
     gallery_name         = var.gallery_name
     image_name           = "ubuntu-nvme-cis"
-    image_version        = "1.0.0"
+    image_version        = var.image_version
     replication_regions  = [var.location]
   }
 }
