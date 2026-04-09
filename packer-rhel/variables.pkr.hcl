@@ -17,3 +17,9 @@ variable "gallery_name" {
   type    = string
   default = "galhardening"
 }
+
+variable "image_version" {
+  type        = string
+  description = "The dynamic version of the image injected by GitHub Actions"
+  default     = "1.0.0"
+}
