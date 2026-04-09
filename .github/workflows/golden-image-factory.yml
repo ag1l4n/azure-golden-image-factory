@@ -27,21 +27,21 @@ jobs:
         with:
           version: 'latest'
 
-      - name: Packer Init RHEL
-        run: packer init .
-        working-directory: ./packer-rhel
+ #     - name: Packer Init RHEL
+ #       run: packer init .
+ #       working-directory: ./packer-rhel
 
-      - name: Build RHEL 9 Golden Image
-        run: packer build -force -var "image_version=1.0.${{ github.run_number }}" .                  
-        working-directory: ./packer-rhel
+ #     - name: Build RHEL 9 Golden Image
+ #       run: packer build -force -var "image_version=1.0.${{ github.run_number }}" .                  
+ #       working-directory: ./packer-rhel
         
-      - name: Packer Init Ubuntu
-        run: packer init .
-        working-directory: ./packer
+ #     - name: Packer Init Ubuntu
+ #       run: packer init .
+ #       working-directory: ./packer
 
-      - name: Build Ubuntu 22.04 Golden Image
-        run: packer build -force -var "image_version=1.0.${{ github.run_number }}" .                  
-        working-directory: ./packer
+ #     - name: Build Ubuntu 22.04 Golden Image
+ #       run: packer build -force -var "image_version=1.0.${{ github.run_number }}" .                  
+ #       working-directory: ./packer
      
      # --- UBUNTU COMPLIANCE SCAN ---
       - name: Generate Ephemeral SSH Key
@@ -65,9 +65,10 @@ jobs:
           VM_IP=$(az vm show -d -g rg-hardening-pipeline -n scan-ubuntu-vm --query publicIps -o tsv)
           echo "UBUNTU_IP=$VM_IP" >> $GITHUB_ENV
 
+          sleep 20
           echo "Waiting for SSH on Ubuntu VM ($VM_IP)..."
           for i in {1..20}; do
-            if ssh -o ConnectTimeout=5 -o BatchMode=yes -i ~/.ssh/scanner_key sysadmin@$VM_IP exit 0 2>/dev/null; then
+            if ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 -i ~/.ssh/scanner_key sysadmin@$VM_IP exit 0 2>/dev/null; then
               echo "SSH is up after attempt $i."
               break
             fi
@@ -78,11 +79,10 @@ jobs:
               exit 1
             fi
           done
-          ssh-keyscan -H $VM_IP >> ~/.ssh/known_hosts
 
       - name: Run Ubuntu OpenSCAP & Download Report
         run: |
-          ssh -i ~/.ssh/scanner_key sysadmin@${{ env.UBUNTU_IP }} << 'EOF'
+          ssh -o StrictHostKeyChecking=no -i ~/.ssh/scanner_key sysadmin@${{ env.UBUNTU_IP }} << 'EOF'
             sudo apt-get update
             # Install the OpenSCAP engine and unzip utility
             sudo apt-get install -y libopenscap8 unzip wget
@@ -101,7 +101,7 @@ jobs:
           EOF
           
           # Secure Copy (SCP) the report back to the GitHub Runner
-          scp -i ~/.ssh/scanner_key sysadmin@${{ env.UBUNTU_IP }}:/home/sysadmin/ubuntu-cis-report.html ./ubuntu-cis-report.html
+          scp -o StrictHostKeyChecking=no -i ~/.ssh/scanner_key sysadmin@${{ env.UBUNTU_IP }}:/home/sysadmin/ubuntu-cis-report.html ./ubuntu-cis-report.html
 
       - name: Destroy Ubuntu Ephemeral VM
         if: always() && env.UBUNTU_IP != ''
@@ -129,9 +129,10 @@ jobs:
           VM_IP=$(az vm show -d -g rg-hardening-pipeline -n scan-rhel-vm --query publicIps -o tsv)
           echo "RHEL_IP=$VM_IP" >> $GITHUB_ENV
 
+          sleep 20
           echo "Waiting for SSH on RHEL VM ($VM_IP)..."
           for i in {1..20}; do
-            if ssh -o ConnectTimeout=5 -o BatchMode=yes -i ~/.ssh/scanner_key sysadmin@$VM_IP exit 0 2>/dev/null; then
+            if ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 -i ~/.ssh/scanner_key sysadmin@$VM_IP exit 0 2>/dev/null; then
               echo "SSH is up after attempt $i."
               break
             fi
@@ -142,11 +143,10 @@ jobs:
               exit 1
             fi
           done
-          ssh-keyscan -H $VM_IP >> ~/.ssh/known_hosts
 
       - name: Run RHEL OpenSCAP & Download Report
         run: |
-          ssh -i ~/.ssh/scanner_key sysadmin@${{ env.RHEL_IP }} << 'EOF'
+          ssh -o StrictHostKeyChecking=no -i ~/.ssh/scanner_key sysadmin@${{ env.RHEL_IP }} << 'EOF'
             sudo dnf install -y openscap-scanner scap-security-guide
             sudo oscap xccdf eval --profile xccdf_org.ssgproject.content_profile_cis_server_l1 --report /tmp/rhel-cis-report.html /usr/share/xml/scap/ssg/content/ssg-rhel9-ds.xml || true
 
@@ -154,7 +154,7 @@ jobs:
             sudo chown sysadmin:sysadmin /home/sysadmin/rhel-cis-report.html
           EOF
           
-          scp -i ~/.ssh/scanner_key sysadmin@${{ env.RHEL_IP }}:/home/sysadmin/rhel-cis-report.html ./rhel-cis-report.html
+          scp -o StrictHostKeyChecking=no -i ~/.ssh/scanner_key sysadmin@${{ env.RHEL_IP }}:/home/sysadmin/rhel-cis-report.html ./rhel-cis-report.html
 
       - name: Destroy RHEL Ephemeral VM
         if: always() && env.RHEL_IP != ''
