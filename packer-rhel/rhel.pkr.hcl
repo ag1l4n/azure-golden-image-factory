@@ -49,4 +49,12 @@ build {
       "--extra-vars", "ansible_python_interpreter=/usr/bin/python3"
     ]
   }
+  provisioner "ansible" {
+    playbook_file = "../ansible/rhel-remediations-l1-VM_adjusted.yml"
+    user          = "packer"
+    use_proxy     = false
+    extra_arguments = [
+      "--extra-vars", "ansible_python_interpreter=/usr/bin/python3"
+    ]
+  }
 }
