@@ -24,6 +24,7 @@
 
 
 - hosts: all
+  become: true
   vars:
     var_authselect_profile: !!str sssd
     cis_banner_text: !!str Authorized users only. All activity may be monitored and reported.
