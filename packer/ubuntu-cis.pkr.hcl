@@ -46,6 +46,15 @@ build {
     ]
   }
 
+  provisioner "ansible" {
+    playbook_file = "../ansible/ubuntu-remediations-l1_VM-Adjusted.yml"
+    user          = "packer"
+    use_proxy     = false
+    extra_arguments = [
+      "--extra-vars", "ansible_python_interpreter=/usr/bin/python3"
+    ]
+  }
+
   provisioner "shell" {
     execute_command = "chmod +x {{ .Path }}; {{ .Vars }} sudo -E sh '{{ .Path }}'"
     inline = [
