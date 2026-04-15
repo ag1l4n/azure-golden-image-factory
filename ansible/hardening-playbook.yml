@@ -42,7 +42,17 @@
 
     # 6. Disable AppArmor/Auditd reboots during the pipeline
     ubtu22cis_reboot_required: false
+    
+  pre_tasks:
+    - name: Wait for cloud-init to finish (prevents apt lock errors)
+      ansible.builtin.raw: cloud-init status --wait
+      changed_when: false
 
+    - name: Update APT package cache
+      ansible.builtin.apt:
+        update_cache: true
+        cache_valid_time: 3600
+        
   roles:
     - role: ubuntu22-cis
 
