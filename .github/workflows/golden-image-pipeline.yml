@@ -27,13 +27,13 @@ jobs:
         with:
           version: 'latest'
 
-      - name: Packer Init RHEL
-        run: packer init .
-        working-directory: ./packer-rhel
+#      - name: Packer Init RHEL
+#        run: packer init .
+#        working-directory: ./packer-rhel
 
-      - name: Build RHEL 9 Golden Image
-        run: packer build -force -var "image_version=1.0.${{ github.run_number }}" .                  
-        working-directory: ./packer-rhel
+#      - name: Build RHEL 9 Golden Image
+#        run: packer build -force -var "image_version=1.0.${{ github.run_number }}" .                  
+#        working-directory: ./packer-rhel
         
       - name: Packer Init Ubuntu
         run: packer init .
@@ -111,56 +111,56 @@ jobs:
           az network public-ip list --resource-group rg-hardening-pipeline --query "[?ipConfiguration==null].[name]" -o tsv | xargs -I {} az network public-ip delete --resource-group rg-hardening-pipeline --name {} || true
 
               # --- RHEL COMPLIANCE SCAN ---
-      - name: Deploy RHEL Ephemeral VM
-        run: |
-          IMAGE_ID=$(az sig image-definition show --resource-group rg-hardening-pipeline --gallery-name galhardening --gallery-image-definition rhel-nvme-cis --query id --output tsv)
+  #    - name: Deploy RHEL Ephemeral VM
+  #      run: |
+  #        IMAGE_ID=$(az sig image-definition show --resource-group rg-hardening-pipeline --gallery-name galhardening --gallery-image-definition rhel-nvme-cis --query id --output tsv)
           
-          az vm create \
-            --resource-group rg-hardening-pipeline \
-            --name scan-rhel-vm \
-            --image $IMAGE_ID \
-            --admin-username sysadmin \
-            --ssh-key-values ~/.ssh/scanner_key.pub \
-            --location southcentralus \
-            --size Standard_D2as_v7 \
-            --nic-delete-option delete \
-            --os-disk-delete-option delete
+  #        az vm create \
+  #          --resource-group rg-hardening-pipeline \
+  #          --name scan-rhel-vm \
+  #          --image $IMAGE_ID \
+  #          --admin-username sysadmin \
+  #          --ssh-key-values ~/.ssh/scanner_key.pub \
+  #          --location southcentralus \
+  #          --size Standard_D2as_v7 \
+  #          --nic-delete-option delete \
+  #          --os-disk-delete-option delete
             
-          VM_IP=$(az vm show -d -g rg-hardening-pipeline -n scan-rhel-vm --query publicIps -o tsv)
-          echo "RHEL_IP=$VM_IP" >> $GITHUB_ENV
+  #        VM_IP=$(az vm show -d -g rg-hardening-pipeline -n scan-rhel-vm --query publicIps -o tsv)
+  #        echo "RHEL_IP=$VM_IP" >> $GITHUB_ENV
 
-          sleep 20
-          echo "Waiting for SSH on RHEL VM ($VM_IP)..."
-          for i in {1..20}; do
-            if ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 -i ~/.ssh/scanner_key sysadmin@$VM_IP exit 0 2>/dev/null; then
-              echo "SSH is up after attempt $i."
-              break
-            fi
-            echo "Attempt $i/20 — SSH not ready yet, retrying in 10s..."
-            sleep 10
-            if [ $i -eq 20 ]; then
-              echo "ERROR: SSH never became available on RHEL VM after 200s."
-              exit 1
-            fi
-          done
+  #        sleep 20
+  #        echo "Waiting for SSH on RHEL VM ($VM_IP)..."
+  #        for i in {1..20}; do
+  #          if ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 -i ~/.ssh/scanner_key sysadmin@$VM_IP exit 0 2>/dev/null; then
+  #            echo "SSH is up after attempt $i."
+  #            break
+  #          fi
+  #          echo "Attempt $i/20 — SSH not ready yet, retrying in 10s..."
+  #          sleep 10
+  #          if [ $i -eq 20 ]; then
+  #            echo "ERROR: SSH never became available on RHEL VM after 200s."
+  #            exit 1
+  #          fi
+  #        done
 
-      - name: Run RHEL OpenSCAP & Download Report
-        run: |
-          ssh -o StrictHostKeyChecking=no -i ~/.ssh/scanner_key sysadmin@${{ env.RHEL_IP }} << 'EOF'
-            sudo dnf install -y openscap-scanner scap-security-guide
-            sudo oscap xccdf eval --profile xccdf_org.ssgproject.content_profile_cis_server_l1 --report /tmp/rhel-cis-report.html /usr/share/xml/scap/ssg/content/ssg-rhel9-ds.xml || true
+  #    - name: Run RHEL OpenSCAP & Download Report
+  #      run: |
+  #        ssh -o StrictHostKeyChecking=no -i ~/.ssh/scanner_key sysadmin@${{ env.RHEL_IP }} << 'EOF'
+  #          sudo dnf install -y openscap-scanner scap-security-guide
+  #          sudo oscap xccdf eval --profile xccdf_org.ssgproject.content_profile_cis_server_l1 --report /tmp/rhel-cis-report.html /usr/share/xml/scap/ssg/content/ssg-rhel9-ds.xml || true
 
-            sudo mv /tmp/rhel-cis-report.html /home/sysadmin/rhel-cis-report.html
-            sudo chown sysadmin:sysadmin /home/sysadmin/rhel-cis-report.html
-          EOF
+  #          sudo mv /tmp/rhel-cis-report.html /home/sysadmin/rhel-cis-report.html
+  #          sudo chown sysadmin:sysadmin /home/sysadmin/rhel-cis-report.html
+  #        EOF
           
-          scp -o StrictHostKeyChecking=no -i ~/.ssh/scanner_key sysadmin@${{ env.RHEL_IP }}:/home/sysadmin/rhel-cis-report.html ./rhel-cis-report.html
+  #        scp -o StrictHostKeyChecking=no -i ~/.ssh/scanner_key sysadmin@${{ env.RHEL_IP }}:/home/sysadmin/rhel-cis-report.html ./rhel-cis-report.html
 
-      - name: Destroy RHEL Ephemeral VM
-        if: always() && env.RHEL_IP != ''
-        run: |
-          az vm delete --resource-group rg-hardening-pipeline --name scan-rhel-vm --yes
-          az network public-ip list --resource-group rg-hardening-pipeline --query "[?ipConfiguration==null].[name]" -o tsv | xargs -I {} az network public-ip delete --resource-group rg-hardening-pipeline --name {} || true
+  #    - name: Destroy RHEL Ephemeral VM
+  #      if: always() && env.RHEL_IP != ''
+  #      run: |
+  #        az vm delete --resource-group rg-hardening-pipeline --name scan-rhel-vm --yes
+  #        az network public-ip list --resource-group rg-hardening-pipeline --query "[?ipConfiguration==null].[name]" -o tsv | xargs -I {} az network public-ip delete --resource-group rg-hardening-pipeline --name {} || true
 
       # --- PUBLISH DEVSECOPS RELEASE ---
       - name: Publish CIS Reports to GitHub Releases
