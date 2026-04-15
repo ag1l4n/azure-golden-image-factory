@@ -51,3 +51,19 @@
         regexp: '^AllowUsers'
         line: 'AllowUsers azureuser packer sysadmin'
         state: present
+
+    - name: Hardening V2 - Secure /tmp using tmpfs (CIS Bypass)
+      ansible.posix.mount:
+        path: /tmp
+        src: tmpfs
+        fstype: tmpfs
+        opts: defaults,rw,nosuid,nodev,noexec,relatime
+        state: present
+
+    - name: Hardening V2 - Secure /dev/shm
+      ansible.posix.mount:
+        path: /dev/shm
+        src: tmpfs
+        fstype: tmpfs
+        opts: defaults,rw,nosuid,nodev,noexec,relatime
+        state: present
