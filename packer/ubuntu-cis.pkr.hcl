@@ -47,7 +47,7 @@ build {
   }
 
   provisioner "ansible" {
-    playbook_file = "../ansible/ubuntu-remediations-l1_VM-Adjusted.yml"
+    playbook_file = "../ansible/ubuntu-remediations-l1-VM_Adjusted.yml"
     user          = "packer"
     use_proxy     = false
     extra_arguments = [
