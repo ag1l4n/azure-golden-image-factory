@@ -35,80 +35,80 @@ jobs:
         run: packer build -force -var "image_version=1.0.${{ github.run_number }}" .                  
         working-directory: ./packer-rhel
         
-    #  - name: Packer Init Ubuntu
-    #    run: packer init .
-    #    working-directory: ./packer
+      - name: Packer Init Ubuntu
+        run: packer init .
+        working-directory: ./packer
 
-    #  - name: Build Ubuntu 22.04 Golden Image
-    #    run: packer build -force -var "image_version=1.0.${{ github.run_number }}" .                  
-    #    working-directory: ./packer
+      - name: Build Ubuntu 22.04 Golden Image
+        run: packer build -force -var "image_version=1.0.${{ github.run_number }}" .                  
+        working-directory: ./packer
      
      # --- UBUNTU COMPLIANCE SCAN ---
       - name: Generate Ephemeral SSH Key
         run: ssh-keygen -t ed25519 -f ~/.ssh/scanner_key -N ""
 
-    #  - name: Deploy Ubuntu Ephemeral VM
-    #    run: |
-    #      IMAGE_ID=$(az sig image-definition show --resource-group rg-hardening-pipeline --gallery-name galhardening --gallery-image-definition ubuntu-nvme-cis --query id --output tsv)
+      - name: Deploy Ubuntu Ephemeral VM
+        run: |
+          IMAGE_ID=$(az sig image-definition show --resource-group rg-hardening-pipeline --gallery-name galhardening --gallery-image-definition ubuntu-nvme-cis --query id --output tsv)
           
-    #      az vm create \
-    #        --resource-group rg-hardening-pipeline \
-    #        --name scan-ubuntu-vm \
-    #        --image $IMAGE_ID \
-    #        --admin-username sysadmin \
-    #        --ssh-key-values ~/.ssh/scanner_key.pub \
-    #        --location southcentralus \
-    #        --size Standard_D2as_v7 \
-    #        --nic-delete-option delete \
-    #        --os-disk-delete-option delete
+          az vm create \
+            --resource-group rg-hardening-pipeline \
+            --name scan-ubuntu-vm \
+            --image $IMAGE_ID \
+            --admin-username sysadmin \
+            --ssh-key-values ~/.ssh/scanner_key.pub \
+            --location southcentralus \
+            --size Standard_D2as_v7 \
+            --nic-delete-option delete \
+            --os-disk-delete-option delete
             
-    #      VM_IP=$(az vm show -d -g rg-hardening-pipeline -n scan-ubuntu-vm --query publicIps -o tsv)
-    #      echo "UBUNTU_IP=$VM_IP" >> $GITHUB_ENV
+          VM_IP=$(az vm show -d -g rg-hardening-pipeline -n scan-ubuntu-vm --query publicIps -o tsv)
+          echo "UBUNTU_IP=$VM_IP" >> $GITHUB_ENV
 
-    #      sleep 20
-    #      echo "Waiting for SSH on Ubuntu VM ($VM_IP)..."
-    #      for i in {1..20}; do
-    #        if ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 -i ~/.ssh/scanner_key sysadmin@$VM_IP exit 0 2>/dev/null; then
-    #          echo "SSH is up after attempt $i."
-    #          break
-    #        fi
-    #        echo "Attempt $i/20 — SSH not ready yet, retrying in 10s..."
-    #        sleep 10
-    #        if [ $i -eq 20 ]; then
-    #          echo "ERROR: SSH never became available on Ubuntu VM after 200s."
-    #          exit 1
-    #        fi
-    #      done
+          sleep 20
+          echo "Waiting for SSH on Ubuntu VM ($VM_IP)..."
+          for i in {1..20}; do
+            if ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 -i ~/.ssh/scanner_key sysadmin@$VM_IP exit 0 2>/dev/null; then
+              echo "SSH is up after attempt $i."
+              break
+            fi
+            echo "Attempt $i/20 — SSH not ready yet, retrying in 10s..."
+            sleep 10
+            if [ $i -eq 20 ]; then
+              echo "ERROR: SSH never became available on Ubuntu VM after 200s."
+              exit 1
+            fi
+          done
 
-    #  - name: Run Ubuntu OpenSCAP & Download Report
-    #    run: |
-    #      ssh -o StrictHostKeyChecking=no -i ~/.ssh/scanner_key sysadmin@${{ env.UBUNTU_IP }} << 'EOF'
-    #        sudo apt-get update
+      - name: Run Ubuntu OpenSCAP & Download Report
+        run: |
+          ssh -o StrictHostKeyChecking=no -i ~/.ssh/scanner_key sysadmin@${{ env.UBUNTU_IP }} << 'EOF'
+            sudo apt-get update
             # Install the OpenSCAP engine and unzip utility
-    #        sudo apt-get install -y libopenscap8 unzip wget
+            sudo apt-get install -y libopenscap8 unzip wget
             
-    #        wget https://github.com/ComplianceAsCode/content/releases/download/v0.1.74/scap-security-guide-0.1.74.zip
-    #        unzip scap-security-guide-0.1.74.zip
+            wget https://github.com/ComplianceAsCode/content/releases/download/v0.1.74/scap-security-guide-0.1.74.zip
+            unzip scap-security-guide-0.1.74.zip
             
             # Run scan using the downloaded datastream and force exit code 0
-    #        sudo oscap xccdf eval \
-    #          --profile xccdf_org.ssgproject.content_profile_cis_level1_server \
-    #          --report /tmp/ubuntu-cis-report.html \
-    #          scap-security-guide-0.1.74/ssg-ubuntu2204-ds.xml || true
+            sudo oscap xccdf eval \
+              --profile xccdf_org.ssgproject.content_profile_cis_level1_server \
+              --report /tmp/ubuntu-cis-report.html \
+              scap-security-guide-0.1.74/ssg-ubuntu2204-ds.xml || true
 
-    #        sudo mv /tmp/ubuntu-cis-report.html /home/sysadmin/ubuntu-cis-report.html
-    #        sudo chown sysadmin:sysadmin /home/sysadmin/ubuntu-cis-report.html
-    #      EOF
+            sudo mv /tmp/ubuntu-cis-report.html /home/sysadmin/ubuntu-cis-report.html
+            sudo chown sysadmin:sysadmin /home/sysadmin/ubuntu-cis-report.html
+          EOF
           
           # Secure Copy (SCP) the report back to the GitHub Runner
-    #      scp -o StrictHostKeyChecking=no -i ~/.ssh/scanner_key sysadmin@${{ env.UBUNTU_IP }}:/home/sysadmin/ubuntu-cis-report.html ./ubuntu-cis-report.html
+          scp -o StrictHostKeyChecking=no -i ~/.ssh/scanner_key sysadmin@${{ env.UBUNTU_IP }}:/home/sysadmin/ubuntu-cis-report.html ./ubuntu-cis-report.html
 
-    #  - name: Destroy Ubuntu Ephemeral VM
-    #    if: always() && env.UBUNTU_IP != ''
-    #    run: |
-    #      az vm delete --resource-group rg-hardening-pipeline --name scan-ubuntu-vm --yes
+      - name: Destroy Ubuntu Ephemeral VM
+        if: always() && env.UBUNTU_IP != ''
+        run: |
+          az vm delete --resource-group rg-hardening-pipeline --name scan-ubuntu-vm --yes
           # Clean up any orphaned Public IPs to save our quota
-    #      az network public-ip list --resource-group rg-hardening-pipeline --query "[?ipConfiguration==null].[name]" -o tsv | xargs -I {} az network public-ip delete --resource-group rg-hardening-pipeline --name {} || true
+          az network public-ip list --resource-group rg-hardening-pipeline --query "[?ipConfiguration==null].[name]" -o tsv | xargs -I {} az network public-ip delete --resource-group rg-hardening-pipeline --name {} || true
 
               # --- RHEL COMPLIANCE SCAN ---
       - name: Deploy RHEL Ephemeral VM
