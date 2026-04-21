@@ -13,6 +13,15 @@ jobs:
     name: Build CIS Hardened RHEL and Ubuntu
     runs-on: ubuntu-latest
 
+    env:
+      AZURE_RG: ${{ vars.AZURE_RG }}
+      AZURE_GALLERY: ${{ vars.AZURE_GALLERY }}
+      AZURE_LOCATION: ${{ vars.AZURE_LOCATION }}
+      VM_SIZE: ${{ vars.VM_SIZE }}
+      PKR_VAR_resource_group: ${{ vars.AZURE_RG }}
+      PKR_VAR_gallery_name: ${{ vars.AZURE_GALLERY }}
+      PKR_VAR_location: ${{ vars.AZURE_LOCATION }}
+    
     steps:
       - name: Checkout Code
         uses: actions/checkout@v3
@@ -49,20 +58,20 @@ jobs:
 
       - name: Deploy Ubuntu Ephemeral VM
         run: |
-          IMAGE_ID=$(az sig image-definition show --resource-group rg-hardening-pipeline --gallery-name galhardening --gallery-image-definition ubuntu-nvme-cis --query id --output tsv)
+          IMAGE_ID=$(az sig image-definition show --resource-group ${{ env.AZURE_RG }} --gallery-name ${{ env.AZURE_GALLERY }} --gallery-image-definition ubuntu-nvme-cis --query id --output tsv)
           
           az vm create \
-            --resource-group rg-hardening-pipeline \
+            --resource-group ${{ env.AZURE_RG }} \
             --name scan-ubuntu-vm \
             --image $IMAGE_ID \
             --admin-username sysadmin \
             --ssh-key-values ~/.ssh/scanner_key.pub \
-            --location southcentralus \
-            --size Standard_D2as_v7 \
+            --location ${{ env.AZURE_LOCATION }} \
+            --size ${{ env.VM_SIZE }} \
             --nic-delete-option delete \
             --os-disk-delete-option delete
             
-          VM_IP=$(az vm show -d -g rg-hardening-pipeline -n scan-ubuntu-vm --query publicIps -o tsv)
+          VM_IP=$(az vm show -d -g ${{ env.AZURE_RG }} -n scan-ubuntu-vm --query publicIps -o tsv)
           echo "UBUNTU_IP=$VM_IP" >> $GITHUB_ENV
 
           sleep 20
@@ -106,27 +115,27 @@ jobs:
       - name: Destroy Ubuntu Ephemeral VM
         if: always() && env.UBUNTU_IP != ''
         run: |
-          az vm delete --resource-group rg-hardening-pipeline --name scan-ubuntu-vm --yes
+          az vm delete --resource-group ${{ env.AZURE_RG }} --name scan-ubuntu-vm --yes
           # Clean up any orphaned Public IPs to save our quota
-          az network public-ip list --resource-group rg-hardening-pipeline --query "[?ipConfiguration==null].[name]" -o tsv | xargs -I {} az network public-ip delete --resource-group rg-hardening-pipeline --name {} || true
+          az network public-ip list --resource-group ${{ env.AZURE_RG }} --query "[?ipConfiguration==null].[name]" -o tsv | xargs -I {} az network public-ip delete --resource-group ${{ env.AZURE_RG }} --name {} || true
 
               # --- RHEL COMPLIANCE SCAN ---
       - name: Deploy RHEL Ephemeral VM
         run: |
-          IMAGE_ID=$(az sig image-definition show --resource-group rg-hardening-pipeline --gallery-name galhardening --gallery-image-definition rhel-nvme-cis --query id --output tsv)
+          IMAGE_ID=$(az sig image-definition show --resource-group ${{ env.AZURE_RG }} --gallery-name ${{ env.AZURE_GALLERY }} --gallery-image-definition rhel-nvme-cis --query id --output tsv)
           
           az vm create \
-            --resource-group rg-hardening-pipeline \
+            --resource-group ${{ env.AZURE_RG }} \
             --name scan-rhel-vm \
             --image $IMAGE_ID \
             --admin-username sysadmin \
             --ssh-key-values ~/.ssh/scanner_key.pub \
-            --location southcentralus \
-            --size Standard_D2as_v7 \
+            --location ${{ env.AZURE_LOCATION }} \
+            --size ${{ env.VM_SIZE }} \
             --nic-delete-option delete \
             --os-disk-delete-option delete
             
-          VM_IP=$(az vm show -d -g rg-hardening-pipeline -n scan-rhel-vm --query publicIps -o tsv)
+          VM_IP=$(az vm show -d -g ${{ env.AZURE_RG }} -n scan-rhel-vm --query publicIps -o tsv)
           echo "RHEL_IP=$VM_IP" >> $GITHUB_ENV
 
           sleep 20
@@ -159,8 +168,8 @@ jobs:
       - name: Destroy RHEL Ephemeral VM
         if: always() && env.RHEL_IP != ''
         run: |
-          az vm delete --resource-group rg-hardening-pipeline --name scan-rhel-vm --yes
-          az network public-ip list --resource-group rg-hardening-pipeline --query "[?ipConfiguration==null].[name]" -o tsv | xargs -I {} az network public-ip delete --resource-group rg-hardening-pipeline --name {} || true
+          az vm delete --resource-group ${{ env.AZURE_RG }} --name scan-rhel-vm --yes
+          az network public-ip list --resource-group ${{ env.AZURE_RG }} --query "[?ipConfiguration==null].[name]" -o tsv | xargs -I {} az network public-ip delete --resource-group ${{ env.AZURE_RG }} --name {} || true
 
       # --- PUBLISH DEVSECOPS RELEASE ---
       - name: Publish CIS Reports to GitHub Releases
