@@ -4,7 +4,34 @@ on:
   push:
     branches: [ "main" ]
   workflow_dispatch:
-  
+    inputs:
+      os_choice:
+        description: 'Target Operating System'
+        required: true
+        default: 'both'
+        type: choice
+        options:
+          - both
+          - ubuntu
+          - rhel
+      scan_only:
+        description: 'Run OpenSCAP Scan Only'
+        required: true
+        default: false
+        type: boolean
+      azure_region:
+        description: 'Deployment Region (Leave blank to use default, southcentralus)'
+        required: false
+        type: string
+      ubuntu_image_name_override:
+        description: 'Custom Ubuntu Image Name Override (Optional)'
+        required: false
+        type: string
+      rhel_image_name_override:
+        description: 'Custom RHEL Image Name Override (Optional)'
+        required: false
+        type: string
+      
 permissions:
   contents: write
 
@@ -16,11 +43,11 @@ jobs:
     env:
       AZURE_RG: ${{ vars.AZURE_RG }}
       AZURE_GALLERY: ${{ vars.AZURE_GALLERY }}
-      AZURE_LOCATION: ${{ vars.AZURE_LOCATION }}
+      AZURE_LOCATION: ${{ inputs.azure_region || vars.AZURE_LOCATION }}
       VM_SIZE: ${{ vars.VM_SIZE }}
       PKR_VAR_resource_group: ${{ vars.AZURE_RG }}
       PKR_VAR_gallery_name: ${{ vars.AZURE_GALLERY }}
-      PKR_VAR_location: ${{ vars.AZURE_LOCATION }}
+      PKR_VAR_location: ${{ inputs.azure_region || vars.AZURE_LOCATION }}
       PKR_VAR_vm_size: ${{ vars.VM_SIZE }}
       PKR_VAR_subscription_id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
     
@@ -34,23 +61,28 @@ jobs:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
       - name: Setup HashiCorp Packer
+        if: ${{ inputs.scan_only != true }}
         uses: hashicorp/setup-packer@main
         with:
           version: 'latest'
 
       - name: Packer Init RHEL
+        if: ${{ inputs.scan_only != true && (inputs.os_choice == 'rhel' || inputs.os_choice == 'both' || inputs.os_choice == '') }}
         run: packer init .
         working-directory: ./packer-rhel
 
       - name: Build RHEL 9 Golden Image
+        if: ${{ inputs.scan_only != true && (inputs.os_choice == 'rhel' || inputs.os_choice == 'both' || inputs.os_choice == '') }}
         run: packer build -force -var "image_version=1.0.${{ github.run_number }}" .                  
         working-directory: ./packer-rhel
         
       - name: Packer Init Ubuntu
+        if: ${{ inputs.scan_only != true && (inputs.os_choice == 'ubuntu' || inputs.os_choice == 'both' || inputs.os_choice == '') }}
         run: packer init .
         working-directory: ./packer
 
       - name: Build Ubuntu 22.04 Golden Image
+        if: ${{ inputs.scan_only != true && (inputs.os_choice == 'ubuntu' || inputs.os_choice == 'both' || inputs.os_choice == '') }}
         run: packer build -force -var "image_version=1.0.${{ github.run_number }}" .                  
         working-directory: ./packer
      
@@ -59,8 +91,10 @@ jobs:
         run: ssh-keygen -t ed25519 -f ~/.ssh/scanner_key -N ""
 
       - name: Deploy Ubuntu Ephemeral VM
+        if: ${{ inputs.os_choice == 'ubuntu' || inputs.os_choice == 'both' || inputs.os_choice == '' }}
         run: |
-          IMAGE_ID=$(az sig image-definition show --resource-group ${{ env.AZURE_RG }} --gallery-name ${{ env.AZURE_GALLERY }} --gallery-image-definition ubuntu-nvme-cis --query id --output tsv)
+          TARGET_IMAGE="${{ inputs.ubuntu_image_name_override || 'ubuntu-nvme-cis' }}"
+          IMAGE_ID=$(az sig image-definition show --resource-group ${{ env.AZURE_RG }} --gallery-name ${{ env.AZURE_GALLERY }} --gallery-image-definition $TARGET_IMAGE --query id --output tsv)
           
           az vm create \
             --resource-group ${{ env.AZURE_RG }} \
@@ -92,6 +126,7 @@ jobs:
           done
 
       - name: Run Ubuntu OpenSCAP & Download Report
+        if: ${{ inputs.os_choice == 'ubuntu' || inputs.os_choice == 'both' || inputs.os_choice == ''}}
         run: |
           ssh -o StrictHostKeyChecking=no -i ~/.ssh/scanner_key sysadmin@${{ env.UBUNTU_IP }} << 'EOF'
             sudo apt-get update
@@ -115,16 +150,18 @@ jobs:
           scp -o StrictHostKeyChecking=no -i ~/.ssh/scanner_key sysadmin@${{ env.UBUNTU_IP }}:/home/sysadmin/ubuntu-cis-report.html ./ubuntu-cis-report.html
 
       - name: Destroy Ubuntu Ephemeral VM
-        if: always() && env.UBUNTU_IP != ''
+        if: ${{ (always() && env.UBUNTU_IP != '') && (inputs.os_choice == 'ubuntu' || inputs.os_choice == 'both' || inputs.os_choice == '') }}
         run: |
           az vm delete --resource-group ${{ env.AZURE_RG }} --name scan-ubuntu-vm --yes
           # Clean up any orphaned Public IPs to save our quota
           az network public-ip list --resource-group ${{ env.AZURE_RG }} --query "[?ipConfiguration==null].[name]" -o tsv | xargs -I {} az network public-ip delete --resource-group ${{ env.AZURE_RG }} --name {} || true
 
-              # --- RHEL COMPLIANCE SCAN ---
+      # --- RHEL COMPLIANCE SCAN ---
       - name: Deploy RHEL Ephemeral VM
+        if: ${{ inputs.os_choice == 'rhel' || inputs.os_choice == 'both' || inputs.os_choice == ''}}
         run: |
-          IMAGE_ID=$(az sig image-definition show --resource-group ${{ env.AZURE_RG }} --gallery-name ${{ env.AZURE_GALLERY }} --gallery-image-definition rhel-nvme-cis --query id --output tsv)
+          TARGET_IMAGE="${{ inputs.rhel_image_name_override || 'rhel-nvme-cis' }}"
+          IMAGE_ID=$(az sig image-definition show --resource-group ${{ env.AZURE_RG }} --gallery-name ${{ env.AZURE_GALLERY }} --gallery-image-definition $TARGET_IMAGE --query id --output tsv)
           
           az vm create \
             --resource-group ${{ env.AZURE_RG }} \
@@ -156,6 +193,7 @@ jobs:
           done
 
       - name: Run RHEL OpenSCAP & Download Report
+        if: ${{ inputs.os_choice == 'rhel' || inputs.os_choice == 'both' || inputs.os_choice == ''}}
         run: |
           ssh -o StrictHostKeyChecking=no -i ~/.ssh/scanner_key sysadmin@${{ env.RHEL_IP }} << 'EOF'
             sudo dnf install -y openscap-scanner scap-security-guide
@@ -168,7 +206,7 @@ jobs:
           scp -o StrictHostKeyChecking=no -i ~/.ssh/scanner_key sysadmin@${{ env.RHEL_IP }}:/home/sysadmin/rhel-cis-report.html ./rhel-cis-report.html
 
       - name: Destroy RHEL Ephemeral VM
-        if: always() && env.RHEL_IP != ''
+        if: ${{ (always() && env.RHEL_IP != '') && (inputs.os_choice == 'rhel' || inputs.os_choice == 'both' || inputs.os_choice == '') }}
         run: |
           az vm delete --resource-group ${{ env.AZURE_RG }} --name scan-rhel-vm --yes
           az network public-ip list --resource-group ${{ env.AZURE_RG }} --query "[?ipConfiguration==null].[name]" -o tsv | xargs -I {} az network public-ip delete --resource-group ${{ env.AZURE_RG }} --name {} || true
