@@ -21,6 +21,7 @@ jobs:
       PKR_VAR_resource_group: ${{ vars.AZURE_RG }}
       PKR_VAR_gallery_name: ${{ vars.AZURE_GALLERY }}
       PKR_VAR_location: ${{ vars.AZURE_LOCATION }}
+      PKR_VAR_vm_size: ${{ vars.VM_SIZE }}
     
     steps:
       - name: Checkout Code
