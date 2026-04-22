@@ -43,7 +43,7 @@ jobs:
     name: Prepare Pipeline & SemVer
     runs-on: ubuntu-latest
     outputs:
-      new_version: ${{ steps.version.outputs.clean_version }}   
+      new_version: ${{ steps.version.outputs.clean_version || '1.0.0' }}  
       matrix_config: ${{ steps.set-matrix.outputs.matrix }}
     steps:
       - name: Checkout Code
