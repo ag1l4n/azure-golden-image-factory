@@ -63,7 +63,8 @@ jobs:
         id: version
         run: |
           RAW="${{ steps.semver.outputs.new_version }}"
-          CLEAN="${RAW#v}"   # strips leading 'v' if present, no-op if already clean
+          CLEAN="${RAW#v}"          # strip leading 'v' if present
+          CLEAN="${CLEAN%%-*}"      # strip pre-release suffix e.g. -SemanticVersioning.0
           echo "clean_version=$CLEAN" >> $GITHUB_OUTPUT
 
       - name: Set Dynamic Matrix
