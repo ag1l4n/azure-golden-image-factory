@@ -236,4 +236,41 @@ jobs:
     # so we guard here to avoid tagging a broken build.
     if: ${{ !cancelled() && !failure() }}
     steps:
-      - name: Do
+      - name: Download All Reports
+        uses: actions/download-artifact@v4
+        with:
+          path: ./reports
+          merge-multiple: true
+
+      # --- VERSIONED RELEASE (normal build run) ---
+      - name: Push Official Git Tag
+        uses: mathieudutour/github-tag-action@v6.2
+        if: ${{ inputs.scan_only != true }}
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          custom_tag: v${{ needs.prepare.outputs.new_version }}  # v-prefix matches release tag below
+
+      - name: Publish Golden Image Release
+        uses: softprops/action-gh-release@v2
+        if: ${{ inputs.scan_only != true }}
+        with:
+          tag_name: v${{ needs.prepare.outputs.new_version }}
+          name: "Golden Image Release v${{ needs.prepare.outputs.new_version }}"
+          body: |
+            Automated OpenSCAP CIS Level 1 Compliance Reports.
+            **Azure Image Version:** `${{ needs.prepare.outputs.new_version }}`
+          fail_on_unmatched_files: false
+          files: ./reports/*-cis-report.html
+
+      # --- AD-HOC SCAN RELEASE (scan_only run) ---
+      - name: Publish Ad-Hoc Scan Report
+        uses: softprops/action-gh-release@v2
+        if: ${{ inputs.scan_only == true }}
+        with:
+          tag_name: scan-report-${{ github.run_number }}
+          name: "Ad-Hoc Compliance Scan #${{ github.run_number }}"
+          body: |
+            Manual OpenSCAP CIS Level 1 evaluation against existing Gallery Images.
+            *(Note: No new image versions were baked during this run).*
+          fail_on_unmatched_files: false
+          files: ./reports/*-cis-report.html
