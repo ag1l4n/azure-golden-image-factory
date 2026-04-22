@@ -43,7 +43,7 @@ jobs:
     name: Prepare Pipeline & SemVer
     runs-on: ubuntu-latest
     outputs:
-      new_version: ${{ steps.semver.outputs.new_version }}
+      new_version: ${{ steps.version.outputs.clean_version }}   
       matrix_config: ${{ steps.set-matrix.outputs.matrix }}
     steps:
       - name: Checkout Code
@@ -58,6 +58,13 @@ jobs:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           dry_run: true
           default_bump: patch
+
+      - name: Normalize Version String
+        id: version
+        run: |
+          RAW="${{ steps.semver.outputs.new_version }}"
+          CLEAN="${RAW#v}"   # strips leading 'v' if present, no-op if already clean
+          echo "clean_version=$CLEAN" >> $GITHUB_OUTPUT
 
       - name: Set Dynamic Matrix
         id: set-matrix
