@@ -20,11 +20,15 @@ on:
         default: false
         type: boolean
       azure_region:
-        description: 'Deployment Region (Leave blank to use default)'
+        description: 'Deployment Region (Leave blank to use default, southcentralus)'
         required: false
         type: string
-      image_name_override:
-        description: 'Custom Image Name Override (Optional)'
+      ubuntu_image_name_override:
+        description: 'Custom Ubuntu Image Name Override (Optional)'
+        required: false
+        type: string
+      rhel_image_name_override:
+        description: 'Custom RHEL Image Name Override (Optional)'
         required: false
         type: string
 
@@ -33,7 +37,7 @@ permissions:
 
 jobs:
   # ==========================================
-  # STAGE 1: CONTROLLER (Calculate SemVer & Matrix)
+  # STAGE 1: PREPARE (Calculate SemVer & Build Matrix)
   # ==========================================
   prepare:
     name: Prepare Pipeline & SemVer
@@ -46,7 +50,7 @@ jobs:
         uses: actions/checkout@v3
         with:
           fetch-depth: 0
-          
+
       - name: Calculate Next SemVer
         id: semver
         uses: mathieudutour/github-tag-action@v6.2
@@ -68,23 +72,22 @@ jobs:
           fi
 
   # ==========================================
-  # STAGE 2: PARALLEL FORGE (Build & Scan)
+  # STAGE 2: BUILD & SCAN (Parallel Matrix)
   # ==========================================
   matrix-factory:
     name: Build & Scan (${{ matrix.os }})
     needs: prepare
     runs-on: ubuntu-latest
     strategy:
-      fail-fast: false 
+      fail-fast: false  # Allow the other OS leg to complete even if one fails
       matrix:
         os: ${{ fromJson(needs.prepare.outputs.matrix_config) }}
-        
+
     env:
       AZURE_RG: ${{ vars.AZURE_RG }}
       AZURE_GALLERY: ${{ vars.AZURE_GALLERY }}
       AZURE_LOCATION: ${{ inputs.azure_region || vars.AZURE_LOCATION }}
       VM_SIZE: ${{ vars.VM_SIZE }}
-      
       PKR_VAR_resource_group: ${{ vars.AZURE_RG }}
       PKR_VAR_gallery_name: ${{ vars.AZURE_GALLERY }}
       PKR_VAR_location: ${{ inputs.azure_region || vars.AZURE_LOCATION }}
@@ -114,18 +117,30 @@ jobs:
 
       - name: Build Golden Image
         if: ${{ inputs.scan_only != true }}
-        run: packer build -force -var "image_version=${{ needs.prepare.outputs.new_version }}" .                  
+        run: packer build -force -var "image_version=${{ needs.prepare.outputs.new_version }}" .
         working-directory: ${{ matrix.os == 'ubuntu' && './packer' || './packer-rhel' }}
 
       # --- DEPLOY EPHEMERAL VM ---
       - name: Generate Ephemeral SSH Key
         run: ssh-keygen -t ed25519 -f ~/.ssh/scanner_key -N ""
 
+      - name: Resolve Target Image Name
+        id: image
+        run: |
+          if [[ "${{ matrix.os }}" == "ubuntu" ]]; then
+            echo "name=${{ inputs.ubuntu_image_name_override || 'ubuntu-nvme-cis' }}" >> $GITHUB_OUTPUT
+          else
+            echo "name=${{ inputs.rhel_image_name_override || 'rhel-nvme-cis' }}" >> $GITHUB_OUTPUT
+          fi
+
       - name: Deploy Ephemeral VM
         run: |
-          TARGET_IMAGE="${{ inputs.image_name_override || (matrix.os == 'ubuntu' && 'ubuntu-nvme-cis' || 'rhel-nvme-cis') }}"
-          IMAGE_ID=$(az sig image-definition show --resource-group ${{ env.AZURE_RG }} --gallery-name ${{ env.AZURE_GALLERY }} --gallery-image-definition $TARGET_IMAGE --query id --output tsv)
-          
+          IMAGE_ID=$(az sig image-definition show \
+            --resource-group ${{ env.AZURE_RG }} \
+            --gallery-name ${{ env.AZURE_GALLERY }} \
+            --gallery-image-definition ${{ steps.image.outputs.name }} \
+            --query id --output tsv)
+
           az vm create \
             --resource-group ${{ env.AZURE_RG }} \
             --name scan-${{ matrix.os }}-vm \
@@ -136,16 +151,23 @@ jobs:
             --size ${{ env.VM_SIZE }} \
             --nic-delete-option delete \
             --os-disk-delete-option delete
-            
+
           VM_IP=$(az vm show -d -g ${{ env.AZURE_RG }} -n scan-${{ matrix.os }}-vm --query publicIps -o tsv)
           echo "VM_IP=$VM_IP" >> $GITHUB_ENV
 
-          echo "Waiting for SSH..."
           sleep 20
+          echo "Waiting for SSH on ${{ matrix.os }} VM ($VM_IP)..."
           for i in {1..20}; do
-            if ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 -i ~/.ssh/scanner_key sysadmin@$VM_IP exit 0 2>/dev/null; then break; fi
+            if ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 -i ~/.ssh/scanner_key sysadmin@$VM_IP exit 0 2>/dev/null; then
+              echo "SSH is up after attempt $i."
+              break
+            fi
+            echo "Attempt $i/20 — SSH not ready yet, retrying in 10s..."
             sleep 10
-            if [ $i -eq 20 ]; then exit 1; fi
+            if [ $i -eq 20 ]; then
+              echo "ERROR: SSH never became available after 200s."
+              exit 1
+            fi
           done
 
       # --- SCAN PHASE ---
@@ -157,78 +179,61 @@ jobs:
             sudo apt-get install -y libopenscap8 unzip wget
             wget https://github.com/ComplianceAsCode/content/releases/download/v0.1.74/scap-security-guide-0.1.74.zip
             unzip scap-security-guide-0.1.74.zip
-            sudo oscap xccdf eval --profile xccdf_org.ssgproject.content_profile_cis_level1_server --report /tmp/ubuntu-cis-report.html scap-security-guide-0.1.74/ssg-ubuntu2204-ds.xml || true
+            sudo oscap xccdf eval \
+              --profile xccdf_org.ssgproject.content_profile_cis_level1_server \
+              --report /tmp/ubuntu-cis-report.html \
+              scap-security-guide-0.1.74/ssg-ubuntu2204-ds.xml || true
             sudo mv /tmp/ubuntu-cis-report.html /home/sysadmin/ubuntu-cis-report.html
             sudo chown sysadmin:sysadmin /home/sysadmin/ubuntu-cis-report.html
           EOF
-          scp -o StrictHostKeyChecking=no -i ~/.ssh/scanner_key sysadmin@${{ env.VM_IP }}:/home/sysadmin/ubuntu-cis-report.html ./${{ matrix.os }}-cis-report.html
+          scp -o StrictHostKeyChecking=no -i ~/.ssh/scanner_key \
+            sysadmin@${{ env.VM_IP }}:/home/sysadmin/ubuntu-cis-report.html \
+            ./ubuntu-cis-report.html
 
       - name: Run RHEL OpenSCAP & Download Report
         if: ${{ matrix.os == 'rhel' }}
         run: |
           ssh -o StrictHostKeyChecking=no -i ~/.ssh/scanner_key sysadmin@${{ env.VM_IP }} << 'EOF'
             sudo dnf install -y openscap-scanner scap-security-guide
-            sudo oscap xccdf eval --profile xccdf_org.ssgproject.content_profile_cis_server_l1 --report /tmp/rhel-cis-report.html /usr/share/xml/scap/ssg/content/ssg-rhel9-ds.xml || true
+            sudo oscap xccdf eval \
+              --profile xccdf_org.ssgproject.content_profile_cis_server_l1 \
+              --report /tmp/rhel-cis-report.html \
+              /usr/share/xml/scap/ssg/content/ssg-rhel9-ds.xml || true
             sudo mv /tmp/rhel-cis-report.html /home/sysadmin/rhel-cis-report.html
             sudo chown sysadmin:sysadmin /home/sysadmin/rhel-cis-report.html
           EOF
-          scp -o StrictHostKeyChecking=no -i ~/.ssh/scanner_key sysadmin@${{ env.VM_IP }}:/home/sysadmin/rhel-cis-report.html ./${{ matrix.os }}-cis-report.html
+          scp -o StrictHostKeyChecking=no -i ~/.ssh/scanner_key \
+            sysadmin@${{ env.VM_IP }}:/home/sysadmin/rhel-cis-report.html \
+            ./rhel-cis-report.html
 
-      # --- TEARDOWN & UPLOAD ---
+      # --- TEARDOWN ---
       - name: Destroy Ephemeral VM
         if: ${{ always() && env.VM_IP != '' }}
         run: |
           az vm delete --resource-group ${{ env.AZURE_RG }} --name scan-${{ matrix.os }}-vm --yes
-          az network public-ip list --resource-group ${{ env.AZURE_RG }} --query "[?ipConfiguration==null].[name]" -o tsv | xargs -I {} az network public-ip delete --resource-group ${{ env.AZURE_RG }} --name {} || true
+          az network public-ip list \
+            --resource-group ${{ env.AZURE_RG }} \
+            --query "[?ipConfiguration==null].[name]" -o tsv \
+            | xargs -I {} az network public-ip delete \
+              --resource-group ${{ env.AZURE_RG }} --name {} || true
 
       - name: Upload Report Artifact
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.os }}-report
           path: ./*-cis-report.html
 
   # ==========================================
-  # STAGE 3: PUBLISHER (Tag & Release)
+  # STAGE 3: PUBLISH (Tag & Release)
   # ==========================================
   release:
     name: Publish DevSecOps Release
     needs: [prepare, matrix-factory]
     runs-on: ubuntu-latest
+    # Run unless the whole pipeline was cancelled.
+    # fail-fast: false means matrix-factory 'completes' even with leg failures,
+    # so we guard here to avoid tagging a broken build.
+    if: ${{ !cancelled() && !failure() }}
     steps:
-      - name: Checkout Code
-        uses: actions/checkout@v3
-
-      - name: Download Matrix Reports
-        uses: actions/download-artifact@v4
-        with:
-          path: ./reports
-          merge-multiple: true 
-
-      - name: Push Official Git Tag
-        uses: mathieudutour/github-tag-action@v6.2
-        if: ${{ inputs.scan_only != true }} 
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          custom_tag: ${{ needs.prepare.outputs.new_version }}
-
-      - name: Publish Golden Image Release
-        uses: softprops/action-gh-release@v2
-        if: ${{ inputs.scan_only != true }}
-        with:
-          tag_name: v${{ needs.prepare.outputs.new_version }}
-          name: "Golden Image Release v${{ needs.prepare.outputs.new_version }}"
-          body: |
-            Automated OpenSCAP CIS Level 1 Compliance Reports.
-            **Azure Image Version:** `${{ needs.prepare.outputs.new_version }}`
-          files: ./reports/*-cis-report.html
-
-      - name: Publish Ad-Hoc Scan Report
-        uses: softprops/action-gh-release@v2
-        if: ${{ inputs.scan_only == true }}
-        with:
-          tag_name: scan-report-${{ github.run_number }}
-          name: "Ad-Hoc Compliance Scan #${{ github.run_number }}"
-          body: |
-            Manual OpenSCAP CIS Level 1 evaluation run against existing Gallery Images.
-            *(Note: No new image versions were baked during this run).*
-          files: ./reports/*-cis-report.html
+      - name: Do
