@@ -78,6 +78,8 @@ build {
 
   # Step 3: Enable OpenSSH for the scan phase after build
   provisioner "powershell" {
+    elevated_user     = "packer"
+    elevated_password = var.winrm_password
     inline = [
       "Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0",
       "Start-Service sshd",
@@ -87,6 +89,8 @@ build {
   }
 
   provisioner "powershell" {
+    elevated_user     = "packer"
+    elevated_password = var.winrm_password
     inline = [
       "$action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument '-ExecutionPolicy Bypass -Command \"Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0; Start-Service sshd; Set-Service -Name sshd -StartupType Automatic; Unregister-ScheduledTask -TaskName EnableOpenSSH -Confirm:$false\"'",
       "$trigger = New-ScheduledTaskTrigger -AtStartup",
