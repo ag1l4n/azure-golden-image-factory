@@ -112,6 +112,7 @@ jobs:
       PKR_VAR_client_secret: ${{ secrets.AZURE_CLIENT_SECRET }}
       PKR_VAR_local_admin_username: sysadmin
       PKR_VAR_local_admin_password: ${{ secrets.WINDOWS_LOCAL_ADMIN_PASSWORD }}
+      PKR_VAR_winrm_password: ${{ secrets.WINDOWS_WINRM_PASSWORD }}
 
     steps:
       - name: Checkout Code
