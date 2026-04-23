@@ -1,27 +1,38 @@
-# Pull credentials from environment variables set by Packer
-$NewLocalAdmin = $env:LOCAL_ADMIN_USERNAME
-$NewLocalAdminPassword = ConvertTo-SecureString $env:LOCAL_ADMIN_PASSWORD -AsPlainText -Force
+# wrapper.ps1
 
-# Read the original CIS script content
+$username = $env:LOCAL_ADMIN_USERNAME
+$password = $env:LOCAL_ADMIN_PASSWORD
+
+# Read the original script
 $scriptContent = Get-Content "C:\Windows\Temp\cis-harden.ps1" -Raw
 
-# Replace the Read-Host prompt line with a pre-set SecureString
-# This targets the specific line that causes the interactive prompt
-$scriptContent = $scriptContent -replace `
-    '\$NewLocalAdminPassword\s*=\s*Read-Host[^\n]*', `
-    "`$NewLocalAdminPassword = ConvertTo-SecureString '$password' -AsPlainText -Force"
+# Prepend variable assignments at the very top so they are declared
+# before the script body runs — this wins over any Read-Host later
+# because we also suppress all Read-Host calls entirely
+$prepend = @"
+`$NewLocalAdmin = '$username'
+`$NewLocalAdminPassword = ConvertTo-SecureString '$password' -AsPlainText -Force
 
-# Also pre-set the username in case the script re-declares it
-$scriptContent = $scriptContent -replace `
-    '\$NewLocalAdmin\s*=\s*"User"', `
-    "`$NewLocalAdmin = '$username'"
+# Override Read-Host globally to prevent any interactive prompts
+function global:Read-Host {
+    param(`$Prompt)
+    Write-Host "Read-Host suppressed by wrapper: `$Prompt"
+    # Return the password if it looks like a password prompt, else empty string
+    if (`$Prompt -like '*password*') {
+        return '$password'
+    }
+    return ''
+}
 
-# Write the patched version to a temp location
-$scriptContent | Out-File "C:\Windows\Temp\cis-harden-patched.ps1" -Encoding UTF8
+"@
 
-# Execute the patched script
+$patched = $prepend + $scriptContent
+
+$patched | Out-File "C:\Windows\Temp\cis-harden-patched.ps1" -Encoding UTF8
+
+# Run the patched script
 & "C:\Windows\Temp\cis-harden-patched.ps1"
 
-# Clean up — don't leave patched script with password on disk
-Remove-Item "C:\Windows\Temp\cis-harden-patched.ps1" -Force
-Remove-Item "C:\Windows\Temp\cis-harden.ps1" -Force
+# Clean up immediately
+Remove-Item "C:\Windows\Temp\cis-harden-patched.ps1" -Force -ErrorAction SilentlyContinue
+Remove-Item "C:\Windows\Temp\cis-harden.ps1" -Force -ErrorAction SilentlyContinue
