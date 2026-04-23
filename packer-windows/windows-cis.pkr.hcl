@@ -53,16 +53,12 @@ build {
     destination = "C:\\Windows\\Temp\\cis-harden.ps1"
   }
 
-  provisioner "file" {
-    source      = "./scripts/cis-harden.ps1"
-    destination = "C:\\Windows\\Temp\\cis-harden.ps1"
-  }
-  
   provisioner "powershell" {
-    inline = [
-      "$NewLocalAdminPassword = ConvertTo-SecureString '${var.local_admin_password}' -AsPlainText -Force",
-      "& 'C:\\Windows\\Temp\\cis-harden.ps1'"
+    environment_vars = [
+      "LOCAL_ADMIN_USERNAME=${var.local_admin_username}",
+      "LOCAL_ADMIN_PASSWORD=${var.local_admin_password}"
     ]
+    script = "./scripts/wrapper.ps1"
   }
 
   # Step 2: Restart to apply hardening (GPO, services, etc.)
@@ -82,9 +78,7 @@ build {
 
   provisioner "powershell" {
     inline = [
-      "$script = 'Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0; Start-Service sshd; Set-Service -Name sshd -StartupType Automatic; Unregister-ScheduledTask -TaskName EnableOpenSSH -Confirm:$false'",
-      "$script | Out-File C:\\enable-openssh.ps1",
-      "$action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument '-ExecutionPolicy Bypass -File C:\\enable-openssh.ps1'",
+      "$action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument '-ExecutionPolicy Bypass -Command \"Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0; Start-Service sshd; Set-Service -Name sshd -StartupType Automatic; Unregister-ScheduledTask -TaskName EnableOpenSSH -Confirm:$false\"'",
       "$trigger = New-ScheduledTaskTrigger -AtStartup",
       "$principal = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -RunLevel Highest",
       "Register-ScheduledTask -TaskName 'EnableOpenSSH' -Action $action -Trigger $trigger -Principal $principal"
