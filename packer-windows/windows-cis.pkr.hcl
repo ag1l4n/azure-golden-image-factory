@@ -19,7 +19,7 @@ source "azure-arm" "windows" {
 
   # Build VM config
   build_resource_group_name = var.resource_group
-  location        = var.location
+  # location        = var.location
   vm_size         = var.vm_size
   
 
@@ -30,6 +30,8 @@ source "azure-arm" "windows" {
   winrm_insecure = true
   winrm_timeout  = "10m"
 
+  os_type = "Windows"
+
   # Destination in Shared Image Gallery
   shared_image_gallery_destination {
     resource_group      = var.resource_group
@@ -38,8 +40,6 @@ source "azure-arm" "windows" {
     image_version       = var.image_version
     replication_regions = [var.location]
   }
-
-  os_type = "Windows"
 }
 
 build {
