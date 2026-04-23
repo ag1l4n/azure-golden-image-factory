@@ -63,6 +63,7 @@ build {
       "LOCAL_ADMIN_USERNAME=${var.local_admin_username}",
       "LOCAL_ADMIN_PASSWORD=${var.local_admin_password}"
     ]
+    valid_exit_codes = [0, 1]
     inline = [
       "& 'C:\\Windows\\Temp\\wrapper.ps1'"
     ]
