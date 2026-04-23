@@ -49,3 +49,8 @@ variable "local_admin_password" {
   type      = string
   sensitive = true
 }
+
+variable "winrm_password" {
+  type      = string
+  sensitive = true
+}
