@@ -3,7 +3,7 @@
 $username = $env:LOCAL_ADMIN_USERNAME
 $password = $env:LOCAL_ADMIN_PASSWORD
 
-$cisScript   = 'C:\Windows\Temp\cis-harden.ps1'
+$cisScript    = 'C:\Windows\Temp\cis-harden.ps1'
 $patchedScript = 'C:\Windows\Temp\cis-harden-patched.ps1'
 
 $scriptContent = Get-Content $cisScript -Raw
@@ -12,6 +12,7 @@ $prepend = @"
 `$NewLocalAdmin = '$username'
 `$NewLocalAdminPassword = ConvertTo-SecureString '$password' -AsPlainText -Force
 
+# Suppress all interactive prompts
 function global:Read-Host {
     param(
         [string]`$Prompt,
@@ -22,6 +23,18 @@ function global:Read-Host {
         return (ConvertTo-SecureString '$password' -AsPlainText -Force)
     }
     return '$password'
+}
+
+# Suppress reboot — Packer windows-restart provisioner handles this instead
+function global:Restart-Computer {
+    param([switch]`$Force, [int]`$Delay)
+    Write-Host 'Restart-Computer suppressed by wrapper - Packer will handle reboot.'
+}
+
+# Also suppress shutdown command in case script uses it directly
+function global:Stop-Computer {
+    param([switch]`$Force)
+    Write-Host 'Stop-Computer suppressed by wrapper.'
 }
 
 "@
