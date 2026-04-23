@@ -35,7 +35,7 @@ $WindowsDefenderLogSize = 2097152 # default of 2GB
 # WARNING: Built in admin account will not exist after running this script. It will be the $NewLocalAdmin specified below
 $AdminAccountPrefix = "DisabledUser" # Built-in admin account prefix. Numbers will be added to the end so that the built in admin account will be different on each server (account will be disabled after renaming)
 $GuestAccountPrefix = "DisabledUserSec" # Built-in guest account prefix. Numbers will be added to the end so that the built in admin account will be different on each server (account will be disabled after renaming)
-$NewLocalAdmin = '${var.local_admin_username}'" # Active admin account username (Local admin account that will be used to manage the server. Account will be active after script is run. This is not a prefix. It's the full account username).
+$NewLocalAdmin = "User" # Active admin account username (Local admin account that will be used to manage the server. Account will be active after script is run. This is not a prefix. It's the full account username).
 
 
 #########################################################
@@ -3746,7 +3746,7 @@ if ($NewLocalAdminExists.Count -eq 0) {
             Write-Error "Your passwords do not match or do not follow the minimum complexity requirements, try again."
         } 
         else {
-            $NewLocalAdminPassword = ConvertTo-SecureString '${var.local_admin_password}' -AsPlainText -Force", "& 'C:\\Windows\\Temp\\cis-harden.ps1'"
+            $NewLocalAdminPassword = ConvertTo-SecureString $temp_pass1 -AsPlainText -Force 
         }
     } while($invalid_pass -eq $false)
 }
