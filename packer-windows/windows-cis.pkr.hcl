@@ -28,6 +28,7 @@ source "azure-arm" "windows" {
   # Use WinRM to communicate during the build
   communicator   = "winrm"
   winrm_username = "packer"
+  winrm_password = var.winrm_password
   winrm_use_ssl  = true
   winrm_insecure = true
   winrm_timeout  = "10m"
