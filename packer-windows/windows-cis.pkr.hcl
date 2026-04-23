@@ -48,8 +48,21 @@ build {
   sources = ["source.azure-arm.windows"]
 
   # Step 1: Run your CIS hardening PowerShell script
+  provisioner "file" {
+    source      = "./scripts/cis-harden.ps1"
+    destination = "C:\\Windows\\Temp\\cis-harden.ps1"
+  }
+
+  provisioner "file" {
+    source      = "./scripts/cis-harden.ps1"
+    destination = "C:\\Windows\\Temp\\cis-harden.ps1"
+  }
+  
   provisioner "powershell" {
-    script = "./scripts/cis-harden.ps1"
+    inline = [
+      "$NewLocalAdminPassword = ConvertTo-SecureString '${var.local_admin_password}' -AsPlainText -Force",
+      "& 'C:\\Windows\\Temp\\cis-harden.ps1'"
+    ]
   }
 
   # Step 2: Restart to apply hardening (GPO, services, etc.)
