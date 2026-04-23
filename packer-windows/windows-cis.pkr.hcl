@@ -72,9 +72,41 @@ build {
     ]
   }
 
+  provisioner "powershell" {
+  elevated_user     = "packer"
+  elevated_password = var.winrm_password
+  inline = [
+    # Re-enable WinRM service
+    "Set-Service WinRM -StartupType Automatic",
+    "Start-Service WinRM",
+
+    # Restore Basic auth so Packer can authenticate
+    "Set-Item WSMan:\\localhost\\Service\\Auth\\Basic $true",
+    "Set-Item WSMan:\\localhost\\Client\\Auth\\Basic $true",
+
+    # Re-enable unencrypted traffic (Packer uses SSL but needs this set)
+    "Set-Item WSMan:\\localhost\\Service\\AllowUnencrypted $false",
+    "Set-Item WSMan:\\localhost\\Client\\AllowUnencrypted $false",
+
+    # Ensure HTTPS listener exists
+    "winrm create winrm/config/Listener?Address=*+Transport=HTTPS '@{Hostname=\"packer\"; CertificateThumbprint=\"\"}' 2>$null || true",
+
+    # Restore RunAs capability Packer needs for elevated provisioners
+    "Set-Item WSMan:\\localhost\\Service\\Auth\\CredSSP $true",
+
+    # Ensure firewall allows WinRM
+    "netsh advfirewall firewall set rule name='Windows Remote Management (HTTPS-In)' new enable=yes",
+
+    # Restart WinRM to apply
+    "Restart-Service WinRM"
+  ]
+}
+
   # Step 2: Restart to apply hardening (GPO, services, etc.)
   provisioner "windows-restart" {
-    restart_timeout = "15m"
+    restart_timeout       = "15m"
+    restart_check_command = "powershell -command \"& {Write-Output 'restarted'}\""
+    pause_before          = "30s"
   }
 
   # Step 3: Enable OpenSSH for the scan phase after build
