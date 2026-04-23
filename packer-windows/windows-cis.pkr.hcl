@@ -18,9 +18,10 @@ source "azure-arm" "windows" {
   image_sku       = "2022-datacenter-g2"
 
   # Build VM config
+  build_resource_group_name = var.resource_group
   location        = var.location
   vm_size         = var.vm_size
-  resource_group_name = var.resource_group
+  
 
   # Use WinRM to communicate during the build
   communicator   = "winrm"
