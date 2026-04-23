@@ -25,10 +25,10 @@ function global:Read-Host {
     return '$password'
 }
 
-# Suppress reboot — Packer windows-restart provisioner handles this
+# Suppress reboot
 function global:Restart-Computer {
     param([switch]`$Force, [int]`$Delay)
-    Write-Host 'Restart-Computer suppressed by wrapper - Packer will handle reboot.'
+    Write-Host 'Restart-Computer suppressed by wrapper.'
 }
 
 function global:Stop-Computer {
@@ -36,29 +36,55 @@ function global:Stop-Computer {
     Write-Host 'Stop-Computer suppressed by wrapper.'
 }
 
-# Suppress WinRM-breaking CIS controls so Packer can reconnect after restart
-# These will be applied by GPO/policy in production — not needed on the build VM
-# The Sysprep step resets WinRM state anyway so this does not affect the final image
-function global:WinRMClientAllowBasic { Write-Host 'WinRMClientAllowBasic suppressed by wrapper.' }
-function global:WinRMClientAllowUnencryptedTraffic { Write-Host 'WinRMClientAllowUnencryptedTraffic suppressed by wrapper.' }
-function global:WinRMClientAllowDigest { Write-Host 'WinRMClientAllowDigest suppressed by wrapper.' }
-function global:WinRMServiceAllowBasic { Write-Host 'WinRMServiceAllowBasic suppressed by wrapper.' }
-function global:WinRMServiceAllowAutoConfig { Write-Host 'WinRMServiceAllowAutoConfig suppressed by wrapper.' }
-function global:WinRMServiceAllowUnencryptedTraffic { Write-Host 'WinRMServiceAllowUnencryptedTraffic suppressed by wrapper.' }
-function global:WinRMServiceDisableRunAs { Write-Host 'WinRMServiceDisableRunAs suppressed by wrapper.' }
-function global:WinRSAllowRemoteShellAccess { Write-Host 'WinRSAllowRemoteShellAccess suppressed by wrapper.' }
+# Suppress WinRM-breaking controls
+function global:WinRMClientAllowBasic { Write-Host 'Suppressed: WinRMClientAllowBasic' }
+function global:WinRMClientAllowUnencryptedTraffic { Write-Host 'Suppressed: WinRMClientAllowUnencryptedTraffic' }
+function global:WinRMClientAllowDigest { Write-Host 'Suppressed: WinRMClientAllowDigest' }
+function global:WinRMServiceAllowBasic { Write-Host 'Suppressed: WinRMServiceAllowBasic' }
+function global:WinRMServiceAllowAutoConfig { Write-Host 'Suppressed: WinRMServiceAllowAutoConfig' }
+function global:WinRMServiceAllowUnencryptedTraffic { Write-Host 'Suppressed: WinRMServiceAllowUnencryptedTraffic' }
+function global:WinRMServiceDisableRunAs { Write-Host 'Suppressed: WinRMServiceDisableRunAs' }
+function global:WinRSAllowRemoteShellAccess { Write-Host 'Suppressed: WinRSAllowRemoteShellAccess' }
 
 "@
 
-$patched = $prepend + $scriptContent
+# Append a WinRM restore block at the END of the patched script
+# This runs after all CIS controls and restores Packer connectivity
+$append = @"
+
+# --- PACKER WinRM RESTORE ---
+# Runs after CIS hardening to restore Packer connectivity
+# Sysprep will reset this state so it does not affect the final image
+Write-Host 'Restoring WinRM for Packer post-hardening...'
+
+# Re-enable WinRM service
+Set-Service WinRM -StartupType Automatic
+Start-Service WinRM -ErrorAction SilentlyContinue
+
+# Restore auth settings Packer needs
+Set-Item 'WSMan:\localhost\Service\Auth\Basic' `$true
+Set-Item 'WSMan:\localhost\Client\Auth\Basic' `$true
+
+# Re-open port 5986 in the firewall (CIS may have closed it)
+netsh advfirewall firewall add rule name='Packer WinRM HTTPS' dir=in action=allow protocol=TCP localport=5986 | Out-Null
+
+# Restart WinRM to apply all changes
+Restart-Service WinRM -Force
+
+Write-Host 'WinRM restored successfully.'
+# --- END PACKER WinRM RESTORE ---
+"@
+
+$patched = $prepend + $scriptContent + $append
 $patched | Out-File $patchedScript -Encoding UTF8
 
 try {
-    & $patchedScript
+    # Dot-source so global function overrides are visible inside the script
+    . $patchedScript
     Write-Host 'CIS hardening completed.'
 } catch {
     Write-Host "WARNING: CIS script encountered an error: $_"
-    Write-Host 'Continuing build - review hardening log at C:\CIS\_Hardening'
+    Write-Host 'Continuing - review log at C:\CIS\_Hardening'
 } finally {
     Remove-Item $patchedScript -Force -ErrorAction SilentlyContinue
     Remove-Item $cisScript     -Force -ErrorAction SilentlyContinue
