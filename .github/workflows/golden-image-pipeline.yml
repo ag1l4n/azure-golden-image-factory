@@ -8,12 +8,13 @@ on:
       os_choice:
         description: 'Target Operating System'
         required: true
-        default: 'both'
+        default: 'all'
         type: choice
         options:
-          - both
+          - all
           - ubuntu
           - rhel
+          - windows
       scan_only:
         description: 'Skip Packer Build (Run OpenSCAP Scan Only)'
         required: true
@@ -31,6 +32,10 @@ on:
         description: 'Custom RHEL Image Name Override (Optional)'
         required: false
         type: string
+      windows_image_name_override:
+        description: 'Custom Windows Image Name Override (Optional)'
+        required: false
+        type: string
 
 permissions:
   contents: write
@@ -43,7 +48,7 @@ jobs:
     name: Prepare Pipeline & SemVer
     runs-on: ubuntu-latest
     outputs:
-      new_version: ${{ steps.version.outputs.clean_version || '1.0.0' }}  
+      new_version: ${{ steps.version.outputs.clean_version }}  
       matrix_config: ${{ steps.set-matrix.outputs.matrix }}
     steps:
       - name: Checkout Code
@@ -71,12 +76,14 @@ jobs:
         id: set-matrix
         run: |
           CHOICE="${{ inputs.os_choice }}"
-          if [[ -z "$CHOICE" || "$CHOICE" == "both" ]]; then
-            echo 'matrix=["ubuntu", "rhel"]' >> $GITHUB_OUTPUT
+          if [[ -z "$CHOICE" || "$CHOICE" == "all" ]]; then
+            echo 'matrix=["ubuntu", "rhel", "windows"]' >> $GITHUB_OUTPUT
           elif [[ "$CHOICE" == "ubuntu" ]]; then
             echo 'matrix=["ubuntu"]' >> $GITHUB_OUTPUT
           elif [[ "$CHOICE" == "rhel" ]]; then
             echo 'matrix=["rhel"]' >> $GITHUB_OUTPUT
+          elif [[ "$CHOICE" == "windows" ]]; then
+            echo 'matrix=["windows"]' >> $GITHUB_OUTPUT
           fi
 
   # ==========================================
@@ -121,12 +128,12 @@ jobs:
       - name: Packer Init
         if: ${{ inputs.scan_only != true }}
         run: packer init .
-        working-directory: ${{ matrix.os == 'ubuntu' && './packer' || './packer-rhel' }}
+        working-directory: ${{ matrix.os == 'ubuntu' && './packer' || matrix.os == 'rhel' && './packer-rhel' || './packer-windows' }}
 
       - name: Build Golden Image
         if: ${{ inputs.scan_only != true }}
         run: packer build -force -var "image_version=${{ needs.prepare.outputs.new_version }}" .
-        working-directory: ${{ matrix.os == 'ubuntu' && './packer' || './packer-rhel' }}
+        working-directory: ${{ matrix.os == 'ubuntu' && './packer' || matrix.os == 'rhel' && './packer-rhel' || './packer-windows' }}
 
       # --- DEPLOY EPHEMERAL VM ---
       - name: Generate Ephemeral SSH Key
@@ -137,8 +144,10 @@ jobs:
         run: |
           if [[ "${{ matrix.os }}" == "ubuntu" ]]; then
             echo "name=${{ inputs.ubuntu_image_name_override || 'ubuntu-nvme-cis' }}" >> $GITHUB_OUTPUT
-          else
+          elif [[ "${{ matrix.os }}" == "rhel" ]]; then
             echo "name=${{ inputs.rhel_image_name_override || 'rhel-nvme-cis' }}" >> $GITHUB_OUTPUT
+          else
+            echo "name=${{ inputs.windows_image_name_override || 'windows-server-2022-cis' }}" >> $GITHUB_OUTPUT
           fi
 
       - name: Deploy Ephemeral VM
@@ -149,34 +158,65 @@ jobs:
             --gallery-image-definition ${{ steps.image.outputs.name }} \
             --query id --output tsv)
 
-          az vm create \
-            --resource-group ${{ env.AZURE_RG }} \
-            --name scan-${{ matrix.os }}-vm \
-            --image $IMAGE_ID \
-            --admin-username sysadmin \
-            --ssh-key-values ~/.ssh/scanner_key.pub \
-            --location ${{ env.AZURE_LOCATION }} \
-            --size ${{ env.VM_SIZE }} \
-            --nic-delete-option delete \
-            --os-disk-delete-option delete
+          if [[ "${{ matrix.os }}" == "windows" ]]; then
+            az vm create \
+              --resource-group ${{ env.AZURE_RG }} \
+              --name scan-${{ matrix.os }}-vm \
+              --image $IMAGE_ID \
+              --admin-username sysadmin \
+              --ssh-key-values ~/.ssh/scanner_key.pub \
+              --location ${{ env.AZURE_LOCATION }} \
+              --size ${{ env.VM_SIZE }} \
+              --nic-delete-option delete \
+              --os-disk-delete-option delete \
+              --nsg-rule SSH
+          else
+            az vm create \
+              --resource-group ${{ env.AZURE_RG }} \
+              --name scan-${{ matrix.os }}-vm \
+              --image $IMAGE_ID \
+              --admin-username sysadmin \
+              --ssh-key-values ~/.ssh/scanner_key.pub \
+              --location ${{ env.AZURE_LOCATION }} \
+              --size ${{ env.VM_SIZE }} \
+              --nic-delete-option delete \
+              --os-disk-delete-option delete
+          fi
 
           VM_IP=$(az vm show -d -g ${{ env.AZURE_RG }} -n scan-${{ matrix.os }}-vm --query publicIps -o tsv)
           echo "VM_IP=$VM_IP" >> $GITHUB_ENV
-
           sleep 20
-          echo "Waiting for SSH on ${{ matrix.os }} VM ($VM_IP)..."
-          for i in {1..20}; do
-            if ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 -i ~/.ssh/scanner_key sysadmin@$VM_IP exit 0 2>/dev/null; then
-              echo "SSH is up after attempt $i."
-              break
-            fi
-            echo "Attempt $i/20 — SSH not ready yet, retrying in 10s..."
-            sleep 10
-            if [ $i -eq 20 ]; then
-              echo "ERROR: SSH never became available after 200s."
-              exit 1
-            fi
-          done
+
+          if [[ "${{ matrix.os }}" == "windows" ]]; then
+            echo "Waiting for WinRM/SSH on Windows VM ($VM_IP)..."
+            for i in {1..30}; do
+              if nc -zw3 $VM_IP 22 2>/dev/null; then
+                echo "Port 22 open after attempt $i."
+                break
+              fi
+              echo "Attempt $i/30 — not ready, retrying in 15s..."
+              sleep 15
+              if [ $i -eq 30 ]; then
+                echo "ERROR: Windows VM never became reachable."
+                exit 1
+              fi
+            done
+            sleep 30
+          else
+            echo "Waiting for SSH on ${{ matrix.os }} VM ($VM_IP)..."
+            for i in {1..20}; do
+              if ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 -i ~/.ssh/scanner_key sysadmin@$VM_IP exit 0 2>/dev/null; then
+                echo "SSH is up after attempt $i."
+                break
+              fi
+              echo "Attempt $i/20 — SSH not ready yet, retrying in 10s..."
+              sleep 10
+              if [ $i -eq 20 ]; then
+                echo "ERROR: SSH never became available after 200s."
+                exit 1
+              fi
+            done
+          fi
 
       # --- SCAN PHASE ---
       - name: Run Ubuntu OpenSCAP & Download Report
@@ -214,6 +254,39 @@ jobs:
             sysadmin@${{ env.VM_IP }}:/home/sysadmin/rhel-cis-report.html \
             ./rhel-cis-report.html
 
+      - name: Prepare Windows Scan Script
+        if: ${{ matrix.os == 'windows' }}
+        run: |
+          cat > /tmp/windows-scan.ps1 << 'PSEOF'
+          Set-ExecutionPolicy Bypass -Scope Process -Force
+          [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+          iex ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))
+          choco install openscap -y --no-progress
+          Invoke-WebRequest -Uri 'https://github.com/ComplianceAsCode/content/releases/download/v0.1.74/scap-security-guide-0.1.74.zip' -OutFile 'C:\ssg.zip'
+          Expand-Archive -Path 'C:\ssg.zip' -DestinationPath 'C:\ssg' -Force
+          & 'C:\Program Files\OpenSCAP\oscap.exe' xccdf eval `
+            --profile xccdf_org.ssgproject.content_profile_cis_level1_memberserver `
+            --report 'C:\windows-cis-report.html' `
+            'C:\ssg\scap-security-guide-0.1.74\ssg-windows_server_2022-ds.xml'
+          PSEOF
+        
+      - name: Run Windows OpenSCAP & Download Report
+        if: ${{ matrix.os == 'windows' }}
+        run: |
+          # Copy the script to the Windows VM
+          scp -o StrictHostKeyChecking=no -i ~/.ssh/scanner_key \
+            /tmp/windows-scan.ps1 \
+            sysadmin@${{ env.VM_IP }}:"C:/windows-scan.ps1"
+
+          # Execute it remotely
+          ssh -o StrictHostKeyChecking=no -i ~/.ssh/scanner_key \
+            sysadmin@${{ env.VM_IP }} \
+            "powershell -ExecutionPolicy Bypass -File C:\\windows-scan.ps1"
+            
+          scp -o StrictHostKeyChecking=no -i ~/.ssh/scanner_key \
+            sysadmin@${{ env.VM_IP }}:"C:/windows-cis-report.html" \
+            ./windows-cis-report.html
+          
       # --- TEARDOWN ---
       - name: Destroy Ephemeral VM
         if: ${{ always() && env.VM_IP != '' }}
