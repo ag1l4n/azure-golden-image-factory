@@ -44,3 +44,8 @@ variable "local_admin_username" {
   type    = string
   default = "sysadmin"  # match what your pipeline uses
 }
+
+variable "local_admin_password" {
+  type      = string
+  sensitive = true
+}
