@@ -110,6 +110,7 @@ jobs:
       PKR_VAR_subscription_id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
       PKR_VAR_client_id: ${{ secrets.AZURE_CLIENT_ID }}
       PKR_VAR_client_secret: ${{ secrets.AZURE_CLIENT_SECRET }}
+      PKR_VAR_local_admin_password: ${{ secrets.WINDOWS_LOCAL_ADMIN_PASSWORD }}
 
     steps:
       - name: Checkout Code
