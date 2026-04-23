@@ -108,6 +108,8 @@ jobs:
       PKR_VAR_location: ${{ inputs.azure_region || vars.AZURE_LOCATION }}
       PKR_VAR_vm_size: ${{ vars.VM_SIZE }}
       PKR_VAR_subscription_id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      PKR_VAR_client_id: ${{ secrets.AZURE_CLIENT_ID }}
+      PKR_VAR_client_secret: ${{ secrets.AZURE_CLIENT_SECRET }}
 
     steps:
       - name: Checkout Code
