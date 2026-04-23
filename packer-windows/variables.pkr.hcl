@@ -39,3 +39,8 @@ variable "client_secret" {
   type      = string
   sensitive = true
 }
+
+variable "local_admin_username" {
+  type    = string
+  default = "sysadmin"  # match what your pipeline uses
+}
