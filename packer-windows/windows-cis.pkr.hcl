@@ -66,7 +66,7 @@ build {
     ]
     elevated_user     = "packer"
     elevated_password = var.winrm_password
-    valid_exit_codes  = [0, 1]
+    valid_exit_codes = [0, 1, 267014]
     inline = [
       "& 'C:\\Windows\\Temp\\wrapper.ps1'"
     ]
