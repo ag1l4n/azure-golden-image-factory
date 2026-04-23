@@ -53,6 +53,11 @@ build {
     destination = "C:\\Windows\\Temp\\cis-harden.ps1"
   }
 
+  provisioner "file" {
+    source      = "./scripts/wrapper.ps1"
+    destination = "C:\\Windows\\Temp\\wrapper.ps1"
+  }
+
   provisioner "powershell" {
     environment_vars = [
       "LOCAL_ADMIN_USERNAME=${var.local_admin_username}",
