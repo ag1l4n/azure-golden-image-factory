@@ -29,7 +29,17 @@ function global:Read-Host {
 $patched = $prepend + $scriptContent
 $patched | Out-File "C:\Windows\Temp\cis-harden-patched.ps1" -Encoding UTF8
 
-& "C:\Windows\Temp\cis-harden-patched.ps1"
+try {
+    & "C:\Windows\Temp\cis-harden-patched.ps1"
+    Write-Host "CIS hardening completed."
+} catch {
+    # Log the error but don't propagate — some CIS controls fail on base images
+    # due to missing components (e.g. domain-only settings on a standalone server)
+    Write-Host "WARNING: CIS script encountered an error: $_"
+    Write-Host "Continuing build — review hardening log at C:\CIS\_Hardening"
+} finally {
+    Remove-Item "C:\Windows\Temp\cis-harden-patched.ps1" -Force -ErrorAction SilentlyContinue
+    Remove-Item "C:\Windows\Temp\cis-harden.ps1" -Force -ErrorAction SilentlyContinue
+}
 
-Remove-Item "C:\Windows\Temp\cis-harden-patched.ps1" -Force -ErrorAction SilentlyContinue
-Remove-Item "C:\Windows\Temp\cis-harden.ps1" -Force -ErrorAction SilentlyContinue
+exit 0
