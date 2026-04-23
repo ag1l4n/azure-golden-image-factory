@@ -29,3 +29,13 @@ variable "image_version" {
   description = "The dynamic version of the image injected by GitHub Actions"
   default     = "1.0.0"
 }
+
+variable "client_id" {
+  type      = string
+  sensitive = true
+}
+
+variable "client_secret" {
+  type      = string
+  sensitive = true
+}
