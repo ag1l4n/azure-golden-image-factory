@@ -63,7 +63,9 @@ build {
       "LOCAL_ADMIN_USERNAME=${var.local_admin_username}",
       "LOCAL_ADMIN_PASSWORD=${var.local_admin_password}"
     ]
-    script = "./scripts/wrapper.ps1"
+    inline = [
+      "& 'C:\\Windows\\Temp\\wrapper.ps1'"
+    ]
   }
 
   # Step 2: Restart to apply hardening (GPO, services, etc.)
