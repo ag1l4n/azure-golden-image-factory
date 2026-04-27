@@ -1,12 +1,12 @@
-# wrapper.ps1
+# wrapper.ps1 — runs as SYSTEM via scheduled task, isolated from WinRM
 
-$username = $env:LOCAL_ADMIN_USERNAME
-$password = $env:LOCAL_ADMIN_PASSWORD
+$username = Get-Content 'C:\Windows\Temp\cis-username.txt' -Raw
+$password = Get-Content 'C:\Windows\Temp\cis-password.txt' -Raw
 
 $cisScript = 'C:\Windows\Temp\cis-harden.ps1'
 
-$NewLocalAdmin         = $username
-$NewLocalAdminPassword = ConvertTo-SecureString $password -AsPlainText -Force
+$NewLocalAdmin         = $username.Trim()
+$NewLocalAdminPassword = ConvertTo-SecureString $password.Trim() -AsPlainText -Force
 
 function global:Read-Host {
     param(
@@ -15,28 +15,28 @@ function global:Read-Host {
     )
     Write-Host "Read-Host suppressed: $Prompt"
     if ($AsSecureString) {
-        return (ConvertTo-SecureString $password -AsPlainText -Force)
+        return (ConvertTo-SecureString $password.Trim() -AsPlainText -Force)
     }
-    return $password
+    return $password.Trim()
 }
 
 function global:Restart-Computer {
     param([switch]$Force, [int]$Delay)
-    Write-Host 'Restart-Computer suppressed by wrapper.'
+    Write-Host 'Restart-Computer suppressed - Packer handles reboot.'
 }
 
 function global:Stop-Computer {
     param([switch]$Force)
-    Write-Host 'Stop-Computer suppressed by wrapper.'
+    Write-Host 'Stop-Computer suppressed.'
 }
 
 try {
     . $cisScript
-    Write-Host 'CIS hardening completed.'
+    Write-Host 'CIS hardening completed successfully.'
+    'done' | Out-File 'C:\Windows\Temp\cis-complete.txt' -Encoding UTF8
 } catch {
-    Write-Host "WARNING: $_"
+    Write-Host "ERROR: $_"
+    $_ | Out-File 'C:\Windows\Temp\cis-failed.txt' -Encoding UTF8
 } finally {
     Remove-Item $cisScript -Force -ErrorAction SilentlyContinue
 }
-
-exit 0
