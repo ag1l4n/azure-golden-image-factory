@@ -60,56 +60,64 @@ build {
   }
 
   provisioner "powershell" {
+    elevated_user    = "packer"
+    elevated_password = var.winrm_password
     environment_vars = [
       "LOCAL_ADMIN_USERNAME=${var.local_admin_username}",
       "LOCAL_ADMIN_PASSWORD=${var.local_admin_password}"
     ]
-    elevated_user     = "packer"
-    elevated_password = var.winrm_password
     valid_exit_codes = [0, 1, 267014]
     inline = [
-      "& 'C:\\Windows\\Temp\\wrapper.ps1'"
+      # Write env vars to a file the scheduled task can read
+      # (Scheduled tasks don't inherit environment variables)
+      "$env:LOCAL_ADMIN_USERNAME | Out-File C:\\Windows\\Temp\\cis-username.txt -Encoding UTF8 -NoNewline",
+      "$env:LOCAL_ADMIN_PASSWORD | Out-File C:\\Windows\\Temp\\cis-password.txt -Encoding UTF8 -NoNewline",
+
+      # Remove any previous completion/failure markers
+      "Remove-Item C:\\Windows\\Temp\\cis-complete.txt -Force -ErrorAction SilentlyContinue",
+      "Remove-Item C:\\Windows\\Temp\\cis-failed.txt   -Force -ErrorAction SilentlyContinue",
+
+      # Register the task to run wrapper.ps1 as SYSTEM
+      "$action    = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument '-ExecutionPolicy Bypass -NonInteractive -File C:\\Windows\\Temp\\wrapper.ps1'",
+      "$trigger   = New-ScheduledTaskTrigger -Once -At (Get-Date).AddSeconds(5)",
+      "$principal = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -RunLevel Highest",
+      "$settings  = New-ScheduledTaskSettingsSet -ExecutionTimeLimit (New-TimeSpan -Minutes 30)",
+      "Register-ScheduledTask -TaskName 'CIS-Harden' -Action $action -Trigger $trigger -Principal $principal -Settings $settings -Force",
+
+      # Start it immediately
+      "Start-ScheduledTask -TaskName 'CIS-Harden'",
+      "Write-Host 'CIS hardening task started. Polling for completion...'",
+
+      # Poll for completion marker — wrapper.ps1 writes this when done
+      "$timeout  = 1800  # 30 minutes",
+      "$elapsed  = 0",
+      "$interval = 15",
+      "do {",
+      "    Start-Sleep -Seconds $interval",
+      "    $elapsed += $interval",
+      "    $state = (Get-ScheduledTask -TaskName 'CIS-Harden').State",
+      "    Write-Host \"[$elapsed`s] Task state: $state\"",
+      "    if (Test-Path 'C:\\Windows\\Temp\\cis-failed.txt') { Write-Host 'CIS hardening reported failure.'; break }",
+      "    if ($elapsed -ge $timeout) { Write-Host 'Timeout waiting for CIS hardening.'; break }",
+      "} while (-not (Test-Path 'C:\\Windows\\Temp\\cis-complete.txt'))",
+
+      "if (Test-Path 'C:\\Windows\\Temp\\cis-complete.txt') { Write-Host 'CIS hardening completed successfully.' }",
+
+      # Cleanup
+      "Unregister-ScheduledTask -TaskName 'CIS-Harden' -Confirm:$false -ErrorAction SilentlyContinue",
+      "Remove-Item C:\\Windows\\Temp\\cis-username.txt -Force -ErrorAction SilentlyContinue",
+      "Remove-Item C:\\Windows\\Temp\\cis-password.txt -Force -ErrorAction SilentlyContinue"
     ]
   }
 
-  provisioner "powershell" {
-  elevated_user     = "packer"
-  elevated_password = var.winrm_password
-  inline = [
-    # Re-enable WinRM service
-    "Set-Service WinRM -StartupType Automatic",
-    "Start-Service WinRM",
-
-    # Restore Basic auth so Packer can authenticate
-    "Set-Item WSMan:\\localhost\\Service\\Auth\\Basic $true",
-    "Set-Item WSMan:\\localhost\\Client\\Auth\\Basic $true",
-
-    # Re-enable unencrypted traffic (Packer uses SSL but needs this set)
-    "Set-Item WSMan:\\localhost\\Service\\AllowUnencrypted $false",
-    "Set-Item WSMan:\\localhost\\Client\\AllowUnencrypted $false",
-
-    # Ensure HTTPS listener exists
-    "winrm create winrm/config/Listener?Address=*+Transport=HTTPS '@{Hostname=\"packer\"; CertificateThumbprint=\"\"}' 2>$null || true",
-
-    # Restore RunAs capability Packer needs for elevated provisioners
-    "Set-Item WSMan:\\localhost\\Service\\Auth\\CredSSP $true",
-
-    # Ensure firewall allows WinRM
-    "netsh advfirewall firewall set rule name='Windows Remote Management (HTTPS-In)' new enable=yes",
-
-    # Restart WinRM to apply
-    "Restart-Service WinRM"
-  ]
-}
-
-  # Step 2: Restart to apply hardening (GPO, services, etc.)
+  # 3. Restart to apply hardening
   provisioner "windows-restart" {
     restart_timeout       = "15m"
     restart_check_command = "powershell -command \"& {Write-Output 'restarted'}\""
     pause_before          = "30s"
   }
 
-  # Step 3: Enable OpenSSH for the scan phase after build
+  # 4. OpenSSH
   provisioner "powershell" {
     elevated_user     = "packer"
     elevated_password = var.winrm_password
@@ -117,26 +125,28 @@ build {
       "Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0",
       "Start-Service sshd",
       "Set-Service -Name sshd -StartupType Automatic",
-      "New-NetFirewallRule -Name sshd -DisplayName 'OpenSSH Server' -Enabled True -Direction Inbound -Protocol TCP -Action Allow -LocalPort 22"
+      "New-NetFirewallRule -Name sshd -DisplayName 'OpenSSH Server' -Enabled True -Direction Inbound -Protocol TCP -Action Allow -LocalPort 22 -ErrorAction SilentlyContinue"
     ]
   }
 
+  # 5. First-boot task for OpenSSH after Sysprep
   provisioner "powershell" {
     elevated_user     = "packer"
     elevated_password = var.winrm_password
     inline = [
-      "$action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument '-ExecutionPolicy Bypass -Command \"Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0; Start-Service sshd; Set-Service -Name sshd -StartupType Automatic; Unregister-ScheduledTask -TaskName EnableOpenSSH -Confirm:$false\"'",
-      "$trigger = New-ScheduledTaskTrigger -AtStartup",
+      "$action    = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument '-ExecutionPolicy Bypass -Command \"Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0; Start-Service sshd; Set-Service -Name sshd -StartupType Automatic; Unregister-ScheduledTask -TaskName EnableOpenSSH -Confirm:$false\"'",
+      "$trigger   = New-ScheduledTaskTrigger -AtStartup",
       "$principal = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -RunLevel Highest",
-      "Register-ScheduledTask -TaskName 'EnableOpenSSH' -Action $action -Trigger $trigger -Principal $principal"
+      "Register-ScheduledTask -TaskName 'EnableOpenSSH' -Action $action -Trigger $trigger -Principal $principal -Force"
     ]
   }
 
-  # Step 4: Generalize (sysprep) — required for Azure gallery images
+  # 6. Sysprep
   provisioner "powershell" {
+    elevated_user     = "packer"
+    elevated_password = var.winrm_password
     inline = [
       "& $env:SystemRoot\\System32\\Sysprep\\Sysprep.exe /oobe /generalize /quiet /quit",
-      "while($true) { $imageState = Get-ItemProperty HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Setup\\State | Select ImageState; if($imageState.ImageState -ne 'IMAGE_STATE_GENERALIZE_RESEAL_TO_OOBE') { Write-Output $imageState.ImageState; Start-Sleep -s 10 } else { break } }"
+      "while($true) { $imageState = (Get-ItemProperty HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Setup\\State).ImageState; if($imageState -ne 'IMAGE_STATE_GENERALIZE_RESEAL_TO_OOBE') { Start-Sleep -s 10 } else { break } }"
     ]
   }
-}
