@@ -17,7 +17,7 @@ source "azure-arm" "windows" {
   # Base image — Windows Server 2022 Datacenter
   image_publisher = "MicrosoftWindowsServer"
   image_offer     = "WindowsServer"
-  image_sku       = "2022-datacenter-g2"
+  image_sku       = "2022-datacenter-azure-edition"
 
   # Build VM config
   build_resource_group_name = var.resource_group
