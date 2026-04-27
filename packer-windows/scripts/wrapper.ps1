@@ -8,36 +8,10 @@ $patchedScript = 'C:\Windows\Temp\cis-harden-patched.ps1'
 
 $scriptContent = Get-Content $cisScript -Raw
 
-# Controls that break Packer's WinRM connection
-# These are suppressed during the build only — they do NOT affect the final
-# baked image because Sysprep resets firewall and WinRM state entirely
-$suppressedControls = @(
-    # WinRM controls — break Packer auth
-    'WinRMClientAllowBasic',
-    'WinRMClientAllowUnencryptedTraffic',
-    'WinRMClientAllowDigest',
-    'WinRMServiceAllowBasic',
-    'WinRMServiceAllowAutoConfig',
-    'WinRMServiceAllowUnencryptedTraffic',
-    'WinRMServiceDisableRunAs',
-    'WinRSAllowRemoteShellAccess',
-
-    # Firewall controls — block port 5986
-    'DomainDefaultInboundAction',
-    'PrivateDefaultInboundAction',
-    'PublicDefaultInboundAction',
-    'PublicAllowLocalPolicyMerge',
-    'PublicAllowLocalIPsecPolicyMerge',
-    'DomainEnableFirewall',
-    'PrivateEnableFirewall',
-    'PublicEnableFirewall'
-)
-
 $prepend = @"
 `$NewLocalAdmin = '$username'
 `$NewLocalAdminPassword = ConvertTo-SecureString '$password' -AsPlainText -Force
 
-# Suppress interactive prompts
 function global:Read-Host {
     param(
         [string]`$Prompt,
@@ -50,7 +24,6 @@ function global:Read-Host {
     return '$password'
 }
 
-# Suppress reboot — Packer windows-restart handles this
 function global:Restart-Computer {
     param([switch]`$Force, [int]`$Delay)
     Write-Host 'Restart-Computer suppressed by wrapper.'
@@ -63,17 +36,8 @@ function global:Stop-Computer {
 
 "@
 
-# Remove suppressed controls from the ExecutionList by commenting them out
-# This is safer than stub functions because it prevents the code from running at all
+# Comment out firewall controls from ExecutionList to keep port 5986 open
 foreach ($control in @(
-    'WinRMClientAllowBasic',
-    'WinRMClientAllowUnencryptedTraffic',
-    'WinRMClientAllowDigest',
-    'WinRMServiceAllowBasic',
-    'WinRMServiceAllowAutoConfig',
-    'WinRMServiceAllowUnencryptedTraffic',
-    'WinRMServiceDisableRunAs',
-    'WinRSAllowRemoteShellAccess',
     'DomainDefaultInboundAction',
     'PrivateDefaultInboundAction',
     'PublicDefaultInboundAction',
@@ -83,10 +47,9 @@ foreach ($control in @(
     'PrivateEnableFirewall',
     'PublicEnableFirewall'
 )) {
-    # Comment out the entry in $ExecutionList
     $scriptContent = $scriptContent -replace `
         "(`"$control`")", `
-        "#`"`$1`" # Suppressed by Packer wrapper - Sysprep resets this"
+        '#"$1" # Suppressed by Packer wrapper'
 }
 
 $patched = $prepend + $scriptContent
@@ -102,5 +65,32 @@ try {
     Remove-Item $patchedScript -Force -ErrorAction SilentlyContinue
     Remove-Item $cisScript     -Force -ErrorAction SilentlyContinue
 }
+
+# --- RESTORE WINRM AUTH FOR PACKER ---
+# Port 5986 is open but Basic auth was disabled by CIS WinRM controls
+# Restore it here so Packer can reconnect for remaining provisioners
+# Sysprep resets all WinRM state so this does not affect the final image
+Write-Host 'Restoring WinRM Basic auth for Packer...'
+
+try {
+    # Restore Basic auth on both client and service
+    Set-Item 'WSMan:\localhost\Service\Auth\Basic' $true
+    Set-Item 'WSMan:\localhost\Client\Auth\Basic' $true
+
+    # Ensure content type negotiation is enabled
+    Set-Item 'WSMan:\localhost\Service\AllowUnencrypted' $false
+    Set-Item 'WSMan:\localhost\Client\AllowUnencrypted' $false
+
+    # Restore RunAs so elevated provisioners work
+    Set-Item 'WSMan:\localhost\Service\Auth\CredSSP' $true -ErrorAction SilentlyContinue
+
+    # Restart WinRM to apply
+    Restart-Service WinRM -Force
+
+    Write-Host 'WinRM auth restored successfully.'
+} catch {
+    Write-Host "WARNING: WinRM restore encountered an error: $_"
+}
+# --- END RESTORE ---
 
 exit 0
