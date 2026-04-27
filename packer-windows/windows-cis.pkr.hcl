@@ -49,6 +49,42 @@ source "azure-arm" "windows" {
 build {
   sources = ["source.azure-arm.windows"]
 
+    custom_data = base64encode(<<-EOF
+      <powershell>
+      # Ensure OpenSSH is installed and running
+      Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0 -ErrorAction SilentlyContinue
+      Start-Service sshd -ErrorAction SilentlyContinue
+      Set-Service -Name sshd -StartupType Automatic
+
+      # Enable password authentication in SSH config
+      $sshdConfig = 'C:\ProgramData\ssh\sshd_config'
+      if (Test-Path $sshdConfig) {
+        $content = Get-Content $sshdConfig
+        $content = $content -replace '#PasswordAuthentication yes', 'PasswordAuthentication yes'
+        $content = $content -replace 'PasswordAuthentication no', 'PasswordAuthentication yes'
+        $content | Set-Content $sshdConfig
+      } else {
+        'PasswordAuthentication yes' | Out-File $sshdConfig -Encoding UTF8
+      }
+
+      # Open port 22 in firewall
+      New-NetFirewallRule `
+        -Name 'OpenSSH-Server-In-TCP' `
+        -DisplayName 'OpenSSH Server (sshd)' `
+        -Enabled True `
+        -Direction Inbound `
+        -Protocol TCP `
+        -Action Allow `
+        -LocalPort 22 `
+        -ErrorAction SilentlyContinue
+
+      # Restart SSH to apply config
+      Restart-Service sshd -Force
+      </powershell>
+    EOF
+    )
+  }
+  
   # Step 1: Run your CIS hardening PowerShell script
   provisioner "file" {
     source      = "./scripts/cis-harden.ps1"
