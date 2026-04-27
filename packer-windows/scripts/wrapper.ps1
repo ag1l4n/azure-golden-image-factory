@@ -36,7 +36,7 @@ function global:Stop-Computer {
 
 "@
 
-# Comment out firewall controls from ExecutionList to keep port 5986 open
+# Comment out firewall controls to keep port 5986 open
 foreach ($control in @(
     'DomainDefaultInboundAction',
     'PrivateDefaultInboundAction',
@@ -67,30 +67,40 @@ try {
 }
 
 # --- RESTORE WINRM AUTH FOR PACKER ---
-# Port 5986 is open but Basic auth was disabled by CIS WinRM controls
-# Restore it here so Packer can reconnect for remaining provisioners
-# Sysprep resets all WinRM state so this does not affect the final image
+# The CIS script sets GPO registry keys that override WSMan:\ settings
+# We must remove those policy keys directly — NOT restart WinRM (kills session)
 Write-Host 'Restoring WinRM Basic auth for Packer...'
 
-try {
-    # Restore Basic auth on both client and service
-    Set-Item 'WSMan:\localhost\Service\Auth\Basic' $true
-    Set-Item 'WSMan:\localhost\Client\Auth\Basic' $true
+$policyPaths = @(
+    'HKLM:\SOFTWARE\Policies\Microsoft\Windows\WinRM\Client',
+    'HKLM:\SOFTWARE\Policies\Microsoft\Windows\WinRM\Service'
+)
 
-    # Ensure content type negotiation is enabled
-    Set-Item 'WSMan:\localhost\Service\AllowUnencrypted' $false
-    Set-Item 'WSMan:\localhost\Client\AllowUnencrypted' $false
-
-    # Restore RunAs so elevated provisioners work
-    Set-Item 'WSMan:\localhost\Service\Auth\CredSSP' $true -ErrorAction SilentlyContinue
-
-    # Restart WinRM to apply
-    Restart-Service WinRM -Force
-
-    Write-Host 'WinRM auth restored successfully.'
-} catch {
-    Write-Host "WARNING: WinRM restore encountered an error: $_"
+foreach ($path in $policyPaths) {
+    if (Test-Path $path) {
+        # Remove the specific policy values that disable Basic auth
+        Remove-ItemProperty -Path $path -Name 'AllowBasic'             -ErrorAction SilentlyContinue
+        Remove-ItemProperty -Path $path -Name 'AllowUnencryptedTraffic' -ErrorAction SilentlyContinue
+        Remove-ItemProperty -Path $path -Name 'AllowDigest'            -ErrorAction SilentlyContinue
+        Remove-ItemProperty -Path $path -Name 'DisableRunAs'           -ErrorAction SilentlyContinue
+        Write-Host "Cleared WinRM policy overrides at: $path"
+    }
 }
+
+# Also clear WinRS policy
+$winrsPolicyPath = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\WinRM\WinRS'
+if (Test-Path $winrsPolicyPath) {
+    Remove-ItemProperty -Path $winrsPolicyPath -Name 'AllowRemoteShellAccess' -ErrorAction SilentlyContinue
+    Write-Host "Cleared WinRS policy overrides."
+}
+
+# Now set WSMan directly — with policy keys gone, these will take effect
+Set-Item 'WSMan:\localhost\Service\Auth\Basic' $true -ErrorAction SilentlyContinue
+Set-Item 'WSMan:\localhost\Client\Auth\Basic' $true  -ErrorAction SilentlyContinue
+
+# Do NOT restart WinRM — that kills the current Packer session
+# WinRM reads auth config per-request so changes take effect immediately
+Write-Host 'WinRM policy overrides cleared. Packer can now reconnect.'
 # --- END RESTORE ---
 
 exit 0
