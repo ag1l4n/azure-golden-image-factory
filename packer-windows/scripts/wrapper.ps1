@@ -6,7 +6,59 @@ $password = $env:LOCAL_ADMIN_PASSWORD
 $cisScript     = 'C:\Windows\Temp\cis-harden.ps1'
 $patchedScript = 'C:\Windows\Temp\cis-harden-patched.ps1'
 
-$scriptContent = Get-Content $cisScript -Raw
+# Read script line by line — more reliable than raw regex on full content
+$lines = Get-Content $cisScript
+
+# ALL controls that touch WinRM or firewall — comment out entire line if it contains these
+$suppressedControls = @(
+    'WinRMClientAllowBasic',
+    'WinRMClientAllowUnencryptedTraffic',
+    'WinRMClientAllowDigest',
+    'WinRMServiceAllowBasic',
+    'WinRMServiceAllowAutoConfig',
+    'WinRMServiceAllowUnencryptedTraffic',
+    'WinRMServiceDisableRunAs',
+    'WinRSAllowRemoteShellAccess',
+    'DomainDefaultInboundAction',
+    'PrivateDefaultInboundAction',
+    'PublicDefaultInboundAction',
+    'PublicAllowLocalPolicyMerge',
+    'PublicAllowLocalIPsecPolicyMerge',
+    'DomainEnableFirewall',
+    'PrivateEnableFirewall',
+    'PublicEnableFirewall',
+    'DomainLogFilePath',
+    'DomainLogFileSize',
+    'DomainLogDroppedPackets',
+    'DomainLogSuccessfulConnections',
+    'PrivateLogFilePath',
+    'PrivateLogFileSize',
+    'PrivateLogDroppedPackets',
+    'PrivateLogSuccessfulConnections',
+    'PublicLogFilePath',
+    'PublicLogFileSize',
+    'PublicLogDroppedPackets',
+    'PublicLogSuccessfulConnections'
+)
+
+$patchedLines = foreach ($line in $lines) {
+    $suppressed = $false
+    foreach ($control in $suppressedControls) {
+        # Match any line in the ExecutionList that contains this control name
+        # Handles formats like: "ControlName", #comment
+        #                   or: "ControlName" #comment
+        #                   or: "ControlName",
+        if ($line -match "^\s*`"$control`"") {
+            Write-Host "Suppressing control: $control"
+            "    #`"$control`" # Suppressed by Packer wrapper - Sysprep resets this state"
+            $suppressed = $true
+            break
+        }
+    }
+    if (-not $suppressed) {
+        $line
+    }
+}
 
 $prepend = @"
 `$NewLocalAdmin = '$username'
@@ -17,7 +69,7 @@ function global:Read-Host {
         [string]`$Prompt,
         [switch]`$AsSecureString
     )
-    Write-Host "Read-Host suppressed by wrapper: `$Prompt"
+    Write-Host "Read-Host suppressed: `$Prompt"
     if (`$AsSecureString) {
         return (ConvertTo-SecureString '$password' -AsPlainText -Force)
     }
@@ -36,24 +88,14 @@ function global:Stop-Computer {
 
 "@
 
-# Comment out firewall controls to keep port 5986 open
-foreach ($control in @(
-    'DomainDefaultInboundAction',
-    'PrivateDefaultInboundAction',
-    'PublicDefaultInboundAction',
-    'PublicAllowLocalPolicyMerge',
-    'PublicAllowLocalIPsecPolicyMerge',
-    'DomainEnableFirewall',
-    'PrivateEnableFirewall',
-    'PublicEnableFirewall'
-)) {
-    $scriptContent = $scriptContent -replace `
-        "(`"$control`")", `
-        '#"$1" # Suppressed by Packer wrapper'
-}
+# Write prepend + patched lines
+$prepend | Out-File $patchedScript -Encoding UTF8
+$patchedLines | Out-File $patchedScript -Encoding UTF8 -Append
 
-$patched = $prepend + $scriptContent
-$patched | Out-File $patchedScript -Encoding UTF8
+# Verify suppression worked before running
+$verification = Get-Content $patchedScript | Where-Object { $_ -match 'WinRMServiceAllowBasic|WinRMClientAllowBasic' }
+Write-Host "WinRM control lines after patch:"
+$verification | ForEach-Object { Write-Host $_ }
 
 try {
     . $patchedScript
@@ -65,42 +107,5 @@ try {
     Remove-Item $patchedScript -Force -ErrorAction SilentlyContinue
     Remove-Item $cisScript     -Force -ErrorAction SilentlyContinue
 }
-
-# --- RESTORE WINRM AUTH FOR PACKER ---
-# The CIS script sets GPO registry keys that override WSMan:\ settings
-# We must remove those policy keys directly — NOT restart WinRM (kills session)
-Write-Host 'Restoring WinRM Basic auth for Packer...'
-
-$policyPaths = @(
-    'HKLM:\SOFTWARE\Policies\Microsoft\Windows\WinRM\Client',
-    'HKLM:\SOFTWARE\Policies\Microsoft\Windows\WinRM\Service'
-)
-
-foreach ($path in $policyPaths) {
-    if (Test-Path $path) {
-        # Remove the specific policy values that disable Basic auth
-        Remove-ItemProperty -Path $path -Name 'AllowBasic'             -ErrorAction SilentlyContinue
-        Remove-ItemProperty -Path $path -Name 'AllowUnencryptedTraffic' -ErrorAction SilentlyContinue
-        Remove-ItemProperty -Path $path -Name 'AllowDigest'            -ErrorAction SilentlyContinue
-        Remove-ItemProperty -Path $path -Name 'DisableRunAs'           -ErrorAction SilentlyContinue
-        Write-Host "Cleared WinRM policy overrides at: $path"
-    }
-}
-
-# Also clear WinRS policy
-$winrsPolicyPath = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\WinRM\WinRS'
-if (Test-Path $winrsPolicyPath) {
-    Remove-ItemProperty -Path $winrsPolicyPath -Name 'AllowRemoteShellAccess' -ErrorAction SilentlyContinue
-    Write-Host "Cleared WinRS policy overrides."
-}
-
-# Now set WSMan directly — with policy keys gone, these will take effect
-Set-Item 'WSMan:\localhost\Service\Auth\Basic' $true -ErrorAction SilentlyContinue
-Set-Item 'WSMan:\localhost\Client\Auth\Basic' $true  -ErrorAction SilentlyContinue
-
-# Do NOT restart WinRM — that kills the current Packer session
-# WinRM reads auth config per-request so changes take effect immediately
-Write-Host 'WinRM policy overrides cleared. Packer can now reconnect.'
-# --- END RESTORE ---
 
 exit 0
