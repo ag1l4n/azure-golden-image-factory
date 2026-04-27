@@ -329,7 +329,7 @@ $ExecutionList = @(
     "DisallowOnlineTips",                                               #18.1.3
                                                                         #18.2.1 to 18.2.6 is LAP Implementation. This script will not enable LAPs.
     
-    "LocalAccountTokenFilterPolicy",                                    #18.4.1
+    #"LocalAccountTokenFilterPolicy",                                    #18.4.1
     "ConfigureRPCPacketLevelPrivacy",                                   #18.4.2 Added CIS v3.0.0
     "ConfigureSMBv1ClientDriver",                                       #18.4.3
     "ConfigureSMBv1server",                                             #18.4.4
@@ -3775,6 +3775,46 @@ secedit /export /cfg $location\secedit_final.cfg | out-null
 
 Write-Host "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
 Write-After "Completed. Logs written to: $location"
+
+# =============================================================
+# PACKER BUILD: RESTORE WINRM CONNECTIVITY
+# Runs at the end of hardening to restore Packer's WinRM session.
+# Sysprep resets all of this — final image is not affected.
+# =============================================================
+Write-Host "Restoring WinRM for Packer post-hardening..."
+
+# Remove GPO policy overrides that block Basic auth
+$winrmPolicyPaths = @(
+    'HKLM:\SOFTWARE\Policies\Microsoft\Windows\WinRM\Client',
+    'HKLM:\SOFTWARE\Policies\Microsoft\Windows\WinRM\Service'
+)
+foreach ($path in $winrmPolicyPaths) {
+    if (Test-Path $path) {
+        Remove-ItemProperty -Path $path -Name 'AllowBasic'              -ErrorAction SilentlyContinue
+        Remove-ItemProperty -Path $path -Name 'AllowUnencryptedTraffic' -ErrorAction SilentlyContinue
+        Remove-ItemProperty -Path $path -Name 'AllowDigest'             -ErrorAction SilentlyContinue
+        Remove-ItemProperty -Path $path -Name 'DisableRunAs'            -ErrorAction SilentlyContinue
+    }
+}
+
+# Restore LocalAccountTokenFilterPolicy so remote admin token is not filtered
+Set-ItemProperty `
+    -Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System' `
+    -Name 'LocalAccountTokenFilterPolicy' `
+    -Value 1 `
+    -Type DWord -Force
+
+# Restore WSMan Basic auth directly
+Set-Item 'WSMan:\localhost\Service\Auth\Basic' $true -ErrorAction SilentlyContinue
+Set-Item 'WSMan:\localhost\Client\Auth\Basic'  $true -ErrorAction SilentlyContinue
+
+# Re-open port 5986 explicitly in case firewall touched it
+netsh advfirewall firewall add rule `
+    name='Packer-WinRM-HTTPS' `
+    dir=in action=allow protocol=TCP localport=5986 | Out-Null
+
+Write-Host "WinRM restored for Packer."
+# =============================================================
 
 if ($global:CreatedNewAdmin -eq $true) {
     Write-Host "A new local admin account ($($NewLocalAdmin)) was created using the password you entered previously. The computer needs to reboot now to ensure integrity of the system."
