@@ -28,7 +28,7 @@ source "azure-arm" "windows" {
   # Use WinRM to communicate during the build
   communicator   = "ssh"
   ssh_username = "packer"
-  ssh_password = var.winrm_password
+  ssh_password = var.ssh_password
   ssh_timeout  = "20m"
 
   os_type = "Windows"
