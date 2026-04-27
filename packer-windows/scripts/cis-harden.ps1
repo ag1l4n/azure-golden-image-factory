@@ -263,32 +263,32 @@ $ExecutionList = @(
     "EnableVirtualization",                                             #2.3.17.8
                                                                         #5.1 Not Applicable to Member Server (2023.01.27)
     "DisableSpooler",                                                   #5.2 (2023.01.27)
-    "DomainEnableFirewall",                                             #9.1.1
-    "DomainDefaultInboundAction",                                       #9.1.2
+    #"DomainEnableFirewall",                                             #9.1.1
+    #"DomainDefaultInboundAction",                                       #9.1.2
     #"DomainDefaultOutboundAction",                                     #Removed CIS v3.0.0
-    "DomainDisableNotifications",                                       #9.1.3
-    "DomainLogFilePath",                                                #9.1.4
-    "DomainLogFileSize",                                                #9.1.5
-    "DomainLogDroppedPackets",                                          #9.1.6
-    "DomainLogSuccessfulConnections",                                   #9.1.7
-    "PrivateEnableFirewall",                                            #9.2.1
-    "PrivateDefaultInboundAction",                                      #9.2.2
+    #"DomainDisableNotifications",                                       #9.1.3
+    #"DomainLogFilePath",                                                #9.1.4
+    #"DomainLogFileSize",                                                #9.1.5
+    #"DomainLogDroppedPackets",                                          #9.1.6
+    #"DomainLogSuccessfulConnections",                                   #9.1.7
+    #"PrivateEnableFirewall",                                            #9.2.1
+    #"PrivateDefaultInboundAction",                                      #9.2.2
     #"PrivateDefaultOutboundAction",                                    #Removed CIS v3.0.0
-    "PrivateDisableNotifications",                                      #9.2.3
-    "PrivateLogFilePath",                                               #9.2.4
-    "PrivateLogFileSize",                                               #9.2.5
-    "PrivateLogDroppedPackets",                                         #9.2.6
-    "PrivateLogSuccessfulConnections",                                  #9.2.7
-    "PublicEnableFirewall",                                             #9.3.1
-    "PublicDefaultInboundAction",                                       #9.3.2
+    #"PrivateDisableNotifications",                                      #9.2.3
+    #"PrivateLogFilePath",                                               #9.2.4
+    #"PrivateLogFileSize",                                               #9.2.5
+    #"PrivateLogDroppedPackets",                                         #9.2.6
+    #"PrivateLogSuccessfulConnections",                                  #9.2.7
+    #"PublicEnableFirewall",                                             #9.3.1
+    #"PublicDefaultInboundAction",                                       #9.3.2
     #"PublicDefaultOutboundAction",                                     #Removed CIS v3.0.0
-    "PublicDisableNotifications",                                       #9.3.3
-    "PublicAllowLocalPolicyMerge",                                      #9.3.4 Note: This will disable setting firewall rules with Windows Firewall (wf.msc)
-    "PublicAllowLocalIPsecPolicyMerge",                                 #9.3.5 Note: This will disable setting IPSec firewall rules with Windows Firewall (wf.msc)
-    "PublicLogFilePath",                                                #9.3.6
-    "PublicLogFileSize",                                                #9.3.7
-    "PublicLogDroppedPackets",                                          #9.3.8
-    "PublicLogSuccessfulConnections",                                   #9.3.9
+    #"PublicDisableNotifications",                                       #9.3.3
+    #"PublicAllowLocalPolicyMerge",                                      #9.3.4 Note: This will disable setting firewall rules with Windows Firewall (wf.msc)
+    #"PublicAllowLocalIPsecPolicyMerge",                                 #9.3.5 Note: This will disable setting IPSec firewall rules with Windows Firewall (wf.msc)
+    #"PublicLogFilePath",                                                #9.3.6
+    #"PublicLogFileSize",                                                #9.3.7
+    #"PublicLogDroppedPackets",                                          #9.3.8
+    #"PublicLogSuccessfulConnections",                                   #9.3.9
     "AuditCredentialValidation",                                        #17.1.1
                                                                         #17.1.2 Not Applicable to Member Server (2023.01.27)
                                                                         #17.1.3 Not Applicable to Member Server (2023.01.27)
@@ -554,14 +554,14 @@ $ExecutionList = @(
     "DisableAutomaticRestartSignOn",                                    #18.10.81.2
     "EnableScriptBlockLogging",                                         #18.10.86.1
     "EnableTranscripting",                                              #18.10.86.2
-    "WinRMClientAllowBasic",                                            #18.10.88.1.1
-    "WinRMClientAllowUnencryptedTraffic",                               #18.10.88.1.2
-    "WinRMClientAllowDigest",                                           #18.10.88.1.3
-    "WinRMServiceAllowBasic",                                           #18.10.88.2.1
-    "WinRMServiceAllowAutoConfig",                                      #18.10.88.2.2
-    "WinRMServiceAllowUnencryptedTraffic",                              #18.10.88.2.3
-    "WinRMServiceDisableRunAs",                                         #18.10.88.2.4
-    "WinRSAllowRemoteShellAccess",                                      #18.10.89.1
+    #"WinRMClientAllowBasic",                                            #18.10.88.1.1
+    #"WinRMClientAllowUnencryptedTraffic",                               #18.10.88.1.2
+    #"WinRMClientAllowDigest",                                           #18.10.88.1.3
+    #"WinRMServiceAllowBasic",                                           #18.10.88.2.1
+    #"WinRMServiceAllowAutoConfig",                                      #18.10.88.2.2
+    #"WinRMServiceAllowUnencryptedTraffic",                              #18.10.88.2.3
+    #"WinRMServiceDisableRunAs",                                         #18.10.88.2.4
+    #"WinRSAllowRemoteShellAccess",                                      #18.10.89.1
     "DisallowExploitProtectionOverride",                                #18.10.91.2.1
     "NoAutoRebootWithLoggedOnUsers",                                    #18.10.92.1.1
     "ConfigureAutomaticUpdates",                                        #18.10.92.2.1
