@@ -1,5 +1,3 @@
-# ./packer-windows/windows-cis.pkr.hcl
-
 packer {
   required_plugins {
     azure = {
@@ -14,29 +12,44 @@ source "azure-arm" "windows" {
   client_id       = var.client_id
   client_secret   = var.client_secret
 
-  # Base image — Windows Server 2022 Datacenter
-  image_publisher = "Windows"
+  image_publisher = "MicrosoftWindowsServer"   # ← fixed
   image_offer     = "WindowsServer"
   image_sku       = "2022-datacenter-azure-edition"
 
-  # Build VM config
   build_resource_group_name = var.resource_group
-  # location        = var.location
-  vm_size         = var.vm_size
-  
+  vm_size                   = var.vm_size
 
-  # Use WinRM to communicate during the build
-  communicator   = "ssh"
-  ssh_username = "packer"
-  ssh_password = var.ssh_password
-  ssh_timeout  = "20m"
-
+  communicator             = "ssh"
+  ssh_username             = "packer"
+  ssh_password             = var.ssh_password
+  ssh_timeout              = "30m"
+  pause_before_connecting  = "3m"              # ← added: wait for Windows to fully boot
   allowed_inbound_ip_addresses = ["0.0.0.0/0"]
-  communicator_port = 22
+  communicator_port        = 22
+
+  # custom_data is a SOURCE attribute — moved here from build block
+  custom_data = base64encode(<<-EOF
+    <powershell>
+    Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0 -ErrorAction SilentlyContinue
+    Start-Service sshd -ErrorAction SilentlyContinue
+    Set-Service -Name sshd -StartupType Automatic
+    $sshdConfig = 'C:\ProgramData\ssh\sshd_config'
+    if (Test-Path $sshdConfig) {
+      $content = Get-Content $sshdConfig
+      $content = $content -replace '#PasswordAuthentication yes', 'PasswordAuthentication yes'
+      $content = $content -replace 'PasswordAuthentication no', 'PasswordAuthentication yes'
+      $content | Set-Content $sshdConfig
+    } else {
+      'PasswordAuthentication yes' | Out-File $sshdConfig -Encoding UTF8
+    }
+    New-NetFirewallRule -Name 'OpenSSH-Server-In-TCP' -DisplayName 'OpenSSH Server (sshd)' -Enabled True -Direction Inbound -Protocol TCP -Action Allow -LocalPort 22 -ErrorAction SilentlyContinue
+    Restart-Service sshd -Force
+    </powershell>
+  EOF
+  )
 
   os_type = "Windows"
 
-  # Destination in Shared Image Gallery
   shared_image_gallery_destination {
     resource_group      = var.resource_group
     gallery_name        = var.gallery_name
@@ -49,43 +62,6 @@ source "azure-arm" "windows" {
 build {
   sources = ["source.azure-arm.windows"]
 
-    custom_data = base64encode(<<-EOF
-      <powershell>
-      # Ensure OpenSSH is installed and running
-      Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0 -ErrorAction SilentlyContinue
-      Start-Service sshd -ErrorAction SilentlyContinue
-      Set-Service -Name sshd -StartupType Automatic
-
-      # Enable password authentication in SSH config
-      $sshdConfig = 'C:\ProgramData\ssh\sshd_config'
-      if (Test-Path $sshdConfig) {
-        $content = Get-Content $sshdConfig
-        $content = $content -replace '#PasswordAuthentication yes', 'PasswordAuthentication yes'
-        $content = $content -replace 'PasswordAuthentication no', 'PasswordAuthentication yes'
-        $content | Set-Content $sshdConfig
-      } else {
-        'PasswordAuthentication yes' | Out-File $sshdConfig -Encoding UTF8
-      }
-
-      # Open port 22 in firewall
-      New-NetFirewallRule `
-        -Name 'OpenSSH-Server-In-TCP' `
-        -DisplayName 'OpenSSH Server (sshd)' `
-        -Enabled True `
-        -Direction Inbound `
-        -Protocol TCP `
-        -Action Allow `
-        -LocalPort 22 `
-        -ErrorAction SilentlyContinue
-
-      # Restart SSH to apply config
-      Restart-Service sshd -Force
-      </powershell>
-    EOF
-    )
-  }
-  
-  # Step 1: Run your CIS hardening PowerShell script
   provisioner "file" {
     source      = "./scripts/cis-harden.ps1"
     destination = "C:\\Windows\\Temp\\cis-harden.ps1"
@@ -107,14 +83,12 @@ build {
     ]
   }
 
-  # 3. Restart to apply hardening
   provisioner "windows-restart" {
     restart_timeout       = "20m"
     pause_before          = "30s"
     restart_check_command = "powershell -command \"& {Write-Output 'restarted'}\""
   }
 
-  # 4. OpenSSH
   provisioner "powershell" {
     inline = [
       "Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0",
@@ -124,7 +98,6 @@ build {
     ]
   }
 
-  # 5. First-boot task for OpenSSH after Sysprep
   provisioner "powershell" {
     inline = [
       "$action    = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument '-ExecutionPolicy Bypass -Command \"Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0; Start-Service sshd; Set-Service -Name sshd -StartupType Automatic; Unregister-ScheduledTask -TaskName EnableOpenSSH -Confirm:$false\"'",
@@ -134,7 +107,6 @@ build {
     ]
   }
 
-  # 6. Sysprep
   provisioner "powershell" {
     inline = [
       "& $env:SystemRoot\\System32\\Sysprep\\Sysprep.exe /oobe /generalize /quiet /quit",
