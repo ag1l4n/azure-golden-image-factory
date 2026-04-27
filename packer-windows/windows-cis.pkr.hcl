@@ -15,7 +15,7 @@ source "azure-arm" "windows" {
   client_secret   = var.client_secret
 
   # Base image — Windows Server 2022 Datacenter
-  image_publisher = "MicrosoftWindowsServer"
+  image_publisher = "Windows"
   image_offer     = "WindowsServer"
   image_sku       = "2022-datacenter-azure-edition"
 
@@ -30,6 +30,9 @@ source "azure-arm" "windows" {
   ssh_username = "packer"
   ssh_password = var.ssh_password
   ssh_timeout  = "20m"
+
+  allowed_inbound_ip_addresses = ["0.0.0.0/0"]
+  communicator_port = 22
 
   os_type = "Windows"
 
