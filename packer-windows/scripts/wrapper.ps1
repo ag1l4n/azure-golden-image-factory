@@ -38,27 +38,24 @@ try {
 } catch {
     Write-Host "WARNING: CIS script threw an error: $_"
 } finally {
-    Write-Host 'Executing Finally block: Restoring WinRM for Packer pipeline...'
+    Write-Host 'Executing Finally block: Obliterating CIS WinRM blocks for Packer...'
 
-    # 1. Nuke the Group Policy Registry Keys set by CIS
-    $winrmServicePolicy = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\WinRM\Service'
-    if (Test-Path $winrmServicePolicy) {
-        Set-ItemProperty -Path $winrmServicePolicy -Name 'AllowBasic' -Value 1 -Type DWord -Force -ErrorAction SilentlyContinue
+    # 1. Completely nuke the WinRM Group Policy registry tree to unlock local config
+    $winrmPolicyPath = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\WinRM'
+    if (Test-Path $winrmPolicyPath) {
+        Remove-Item -Path $winrmPolicyPath -Recurse -Force -ErrorAction SilentlyContinue
     }
 
-    $winrmClientPolicy = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\WinRM\Client'
-    if (Test-Path $winrmClientPolicy) {
-        Set-ItemProperty -Path $winrmClientPolicy -Name 'AllowBasic' -Value 1 -Type DWord -Force -ErrorAction SilentlyContinue
-    }
+    # 2. Dynamically apply Basic Auth to the running service (Bypasses the need for a restart)
+    # Note: cmd.exe is used here to avoid PowerShell parsing issues with the @{} syntax
+    cmd.exe /c "winrm set winrm/config/service/auth @{Basic=`"true`"}"
+    cmd.exe /c "winrm set winrm/config/client/auth @{Basic=`"true`"}"
 
-    # 2. Apply standard WSMan settings as a fallback
-    Set-Item -Path WSMan:\localhost\Service\Auth\Basic -Value $true -Force -ErrorAction SilentlyContinue
-    Set-Item -Path WSMan:\localhost\Client\Auth\Basic -Value $true -Force -ErrorAction SilentlyContinue
+    # 3. Ensure the active Packer user hasn't been stripped of remote access rights
+    Add-LocalGroupMember -Group 'Administrators' -Member $username -ErrorAction SilentlyContinue
+    Add-LocalGroupMember -Group 'Remote Management Users' -Member $username -ErrorAction SilentlyContinue
 
-    # 3. Ensure WinRM service is set to Automatic
-    Set-Service WinRM -StartupType Automatic -ErrorAction SilentlyContinue
-
-    # 4. Re-open the Firewall for WinRM HTTPS (Port 5986)
+    # 4. Guarantee the Firewall rule is open for Packer's HTTPS connection
     New-NetFirewallRule -Name "Packer-WinRM-HTTPS" `
                         -DisplayName "Packer WinRM HTTPS" `
                         -Enabled True `
@@ -66,14 +63,10 @@ try {
                         -Protocol TCP `
                         -Action Allow `
                         -LocalPort 5986 `
+                        -Force `
                         -ErrorAction SilentlyContinue
 
-    # 5. THE TRICK: Restart WinRM in a detached background process.
-    # Doing this synchronously kills Packer's active session. 
-    # This command schedules a restart 5 seconds after Packer cleanly exits this provisioner.
-    Invoke-WmiMethod -Class Win32_Process -Name Create -ArgumentList "powershell.exe -WindowStyle Hidden -Command `"Start-Sleep -Seconds 5; Restart-Service WinRM -Force`"" | Out-Null
-
-    Write-Host 'WinRM restored successfully. Handing back to Packer.'
+    Write-Host 'WinRM restored dynamically. Handing back to Packer.'
 
     # Cleanup
     Remove-Item $cisScript -Force -ErrorAction SilentlyContinue
