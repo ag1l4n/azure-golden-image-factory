@@ -74,12 +74,23 @@ build {
   # Packer will wait for this script to finish. When sysprep shuts down the VM, 
   # Packer detects the disconnect, assumes completion, and moves to capture.
   provisioner "powershell" {
+    # Force Packer to run this script in an Elevated (Run as Admin) context
+    elevated_user     = var.local_admin_username
+    elevated_password = var.local_admin_password
+    
     environment_vars = [
       "LOCAL_ADMIN_USERNAME=${var.local_admin_username}",
       "LOCAL_ADMIN_PASSWORD=${var.local_admin_password}"
     ]
+    
     valid_exit_codes = [0, 1]
+    
     inline = [
+      # Remove the "Mark of the Web" restriction from the uploaded files
+      "Unblock-File -Path 'C:\\Windows\\Temp\\cis-harden.ps1' -ErrorAction SilentlyContinue",
+      "Unblock-File -Path 'C:\\Windows\\Temp\\wrapper.ps1' -ErrorAction SilentlyContinue",
+      
+      # Execute the wrapper
       "& 'C:\\Windows\\Temp\\wrapper.ps1'"
     ]
   }
