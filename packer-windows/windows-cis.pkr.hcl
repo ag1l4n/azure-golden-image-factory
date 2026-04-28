@@ -49,7 +49,7 @@ build {
     ]
   }
 
-  # 2. First-Boot Scheduled Task: Start SSH, Delete Build Artifacts, then Self-Destruct
+  # 2. First-Boot Scheduled Task: Start SSH, clean up build artifacts, and self-destruct
   provisioner "powershell" {
     inline = [
       "$action    = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument '-ExecutionPolicy Bypass -Command \"Start-Service sshd; Remove-Item -Path C:\\Windows\\PackerBuild -Recurse -Force -ErrorAction SilentlyContinue; Unregister-ScheduledTask -TaskName EnableFirstBootSetup -Confirm:$false\"'",
@@ -74,38 +74,23 @@ build {
     destination = "C:\\Windows\\PackerBuild\\wrapper.ps1"
   }
 
-  # 4. The Fire-and-Forget SYSTEM Task (Bypasses AppLocker and UAC completely)
+  # 4. Execute Hardening and Sysprep natively as SYSTEM
   provisioner "powershell" {
+    # This is the magic key. It bypasses all UAC and WinRM medium-integrity blocks.
+    elevated_user     = "SYSTEM"
+    elevated_password = ""
+    
     environment_vars = [
       "LOCAL_ADMIN_USERNAME=${var.local_admin_username}",
       "LOCAL_ADMIN_PASSWORD=${var.local_admin_password}"
     ]
     
+    valid_exit_codes = [0, 1]
+    
     inline = [
       "Unblock-File -Path 'C:\\Windows\\PackerBuild\\cis-harden.ps1' -ErrorAction SilentlyContinue",
       "Unblock-File -Path 'C:\\Windows\\PackerBuild\\wrapper.ps1' -ErrorAction SilentlyContinue",
-
-      # Securely pass credentials to the SYSTEM task context, which has no access to WinRM env vars
-      "Set-Content -Path 'C:\\Windows\\PackerBuild\\creds.txt' -Value \"$env:LOCAL_ADMIN_USERNAME`n$env:LOCAL_ADMIN_PASSWORD\"",
-
-      # Register the SYSTEM task
-      "$action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument '-ExecutionPolicy Bypass -WindowStyle Hidden -File C:\\Windows\\PackerBuild\\wrapper.ps1'",
-      "$principal = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -RunLevel Highest",
-      "Register-ScheduledTask -TaskName 'PackerCIS' -Action $action -Principal $principal -Force | Out-Null",
-      
-      # Start the task
-      "Start-ScheduledTask -TaskName 'PackerCIS'",
-      "Write-Host 'CIS Hardening and Sysprep are running in the background as SYSTEM...'",
-
-      # Monitor the registry to know exactly when Sysprep finishes
-      "while($true) {",
-      "  $imageState = (Get-ItemProperty HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Setup\\State -ErrorAction SilentlyContinue).ImageState",
-      "  if ($imageState -eq 'IMAGE_STATE_GENERALIZE_RESEAL_TO_OOBE') {",
-      "    Write-Host 'Sysprep completed successfully. Handing back to Azure API.'",
-      "    break",
-      "  }",
-      "  Start-Sleep -Seconds 10",
-      "}"
+      "& 'C:\\Windows\\PackerBuild\\wrapper.ps1'"
     ]
   }
 }
