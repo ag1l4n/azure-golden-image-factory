@@ -21,7 +21,7 @@ on:
         default: false
         type: boolean
       azure_region:
-        description: 'Deployment Region (Leave blank to use default, southcentralus)'
+        description: 'Deployment Region (Leave blank to use default, southeastasia)'
         required: false
         type: string
       ubuntu_image_name_override:
