@@ -40,7 +40,7 @@ source "azure-arm" "windows" {
 build {
   sources = ["source.azure-arm.windows"]
 
-  # 1. Install OpenSSH FIRST (While the system is still unhardened and friendly)
+  # 1. Install OpenSSH FIRST
   provisioner "powershell" {
     inline = [
       "Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0",
@@ -49,17 +49,17 @@ build {
     ]
   }
 
-  # 2. Scheduled Task: Sysprep strips SSH host keys. This ensures SSH starts and generates keys on first boot, then deletes itself.
+  # 2. First-Boot Scheduled Task: Start SSH, Delete Build Artifacts, then Self-Destruct
   provisioner "powershell" {
     inline = [
-      "$action    = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument '-ExecutionPolicy Bypass -Command \"Start-Service sshd; Unregister-ScheduledTask -TaskName EnableOpenSSH -Confirm:$false\"'",
+      "$action    = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument '-ExecutionPolicy Bypass -Command \"Start-Service sshd; Remove-Item -Path C:\\Windows\\PackerBuild -Recurse -Force -ErrorAction SilentlyContinue; Unregister-ScheduledTask -TaskName EnableFirstBootSetup -Confirm:$false\"'",
       "$trigger   = New-ScheduledTaskTrigger -AtStartup",
       "$principal = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -RunLevel Highest",
-      "Register-ScheduledTask -TaskName 'EnableOpenSSH' -Action $action -Trigger $trigger -Principal $principal -Force"
+      "Register-ScheduledTask -TaskName 'EnableFirstBootSetup' -Action $action -Trigger $trigger -Principal $principal -Force"
     ]
   }
 
-  # 3. Create Trusted Path and Upload Scripts LAST
+  # 3. Create Trusted Path and Upload Scripts
   provisioner "powershell" {
     inline = ["New-Item -ItemType Directory -Force -Path 'C:\\Windows\\PackerBuild'"]
   }
@@ -74,28 +74,39 @@ build {
     destination = "C:\\Windows\\PackerBuild\\wrapper.ps1"
   }
 
-  # 4. Execute Hardening and Sysprep in ONE breath
+  # 4. The Fire-and-Forget SYSTEM Task (Bypasses AppLocker and UAC completely)
   provisioner "powershell" {
-    elevated_user     = var.local_admin_username
-    elevated_password = var.local_admin_password
-    
     environment_vars = [
       "LOCAL_ADMIN_USERNAME=${var.local_admin_username}",
       "LOCAL_ADMIN_PASSWORD=${var.local_admin_password}"
     ]
     
-    valid_exit_codes = [0, 1]
-    
     inline = [
-      # Force Execution Policy Bypass for this specific process so CIS doesn't lock it
-      "Set-ExecutionPolicy Bypass -Scope Process -Force",
-      
-      # Unblock the files downloaded via network
       "Unblock-File -Path 'C:\\Windows\\PackerBuild\\cis-harden.ps1' -ErrorAction SilentlyContinue",
       "Unblock-File -Path 'C:\\Windows\\PackerBuild\\wrapper.ps1' -ErrorAction SilentlyContinue",
+
+      # Securely pass credentials to the SYSTEM task context, which has no access to WinRM env vars
+      "Set-Content -Path 'C:\\Windows\\PackerBuild\\creds.txt' -Value \"$env:LOCAL_ADMIN_USERNAME`n$env:LOCAL_ADMIN_PASSWORD\"",
+
+      # Register the SYSTEM task
+      "$action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument '-ExecutionPolicy Bypass -WindowStyle Hidden -File C:\\Windows\\PackerBuild\\wrapper.ps1'",
+      "$principal = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -RunLevel Highest",
+      "Register-ScheduledTask -TaskName 'PackerCIS' -Action $action -Principal $principal -Force | Out-Null",
       
-      # Execute the wrapper from the trusted path
-      "& 'C:\\Windows\\PackerBuild\\wrapper.ps1'"
+      # Start the task
+      "Start-ScheduledTask -TaskName 'PackerCIS'",
+      "Write-Host 'CIS Hardening and Sysprep are running in the background as SYSTEM...'",
+
+      # Monitor the registry to know exactly when Sysprep finishes
+      "while($true) {",
+      "  $imageState = (Get-ItemProperty HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Setup\\State -ErrorAction SilentlyContinue).ImageState",
+      "  if ($imageState -eq 'IMAGE_STATE_GENERALIZE_RESEAL_TO_OOBE') {",
+      "    Write-Host 'Sysprep completed successfully. Handing back to Azure API.'",
+      "    break",
+      "  }",
+      "  Start-Sleep -Seconds 10",
+      "}"
     ]
   }
 }
+
