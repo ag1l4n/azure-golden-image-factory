@@ -59,22 +59,23 @@ build {
     ]
   }
 
-  # 3. Upload Hardening Scripts LAST
+  # 3. Create Trusted Path and Upload Scripts LAST
+  provisioner "powershell" {
+    inline = ["New-Item -ItemType Directory -Force -Path 'C:\\Windows\\PackerBuild'"]
+  }
+
   provisioner "file" {
     source      = "./scripts/cis-harden.ps1"
-    destination = "C:\\Windows\\Temp\\cis-harden.ps1"
+    destination = "C:\\Windows\\PackerBuild\\cis-harden.ps1"
   }
 
   provisioner "file" {
     source      = "./scripts/wrapper.ps1"
-    destination = "C:\\Windows\\Temp\\wrapper.ps1"
+    destination = "C:\\Windows\\PackerBuild\\wrapper.ps1"
   }
 
   # 4. Execute Hardening and Sysprep in ONE breath
-  # Packer will wait for this script to finish. When sysprep shuts down the VM, 
-  # Packer detects the disconnect, assumes completion, and moves to capture.
   provisioner "powershell" {
-    # Force Packer to run this script in an Elevated (Run as Admin) context
     elevated_user     = var.local_admin_username
     elevated_password = var.local_admin_password
     
@@ -86,12 +87,15 @@ build {
     valid_exit_codes = [0, 1]
     
     inline = [
-      # Remove the "Mark of the Web" restriction from the uploaded files
-      "Unblock-File -Path 'C:\\Windows\\Temp\\cis-harden.ps1' -ErrorAction SilentlyContinue",
-      "Unblock-File -Path 'C:\\Windows\\Temp\\wrapper.ps1' -ErrorAction SilentlyContinue",
+      # Force Execution Policy Bypass for this specific process so CIS doesn't lock it
+      "Set-ExecutionPolicy Bypass -Scope Process -Force",
       
-      # Execute the wrapper
-      "& 'C:\\Windows\\Temp\\wrapper.ps1'"
+      # Unblock the files downloaded via network
+      "Unblock-File -Path 'C:\\Windows\\PackerBuild\\cis-harden.ps1' -ErrorAction SilentlyContinue",
+      "Unblock-File -Path 'C:\\Windows\\PackerBuild\\wrapper.ps1' -ErrorAction SilentlyContinue",
+      
+      # Execute the wrapper from the trusted path
+      "& 'C:\\Windows\\PackerBuild\\wrapper.ps1'"
     ]
   }
 }
