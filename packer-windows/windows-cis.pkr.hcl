@@ -40,6 +40,26 @@ source "azure-arm" "windows" {
 build {
   sources = ["source.azure-arm.windows"]
 
+  # 1. Install OpenSSH FIRST (While the system is still unhardened and friendly)
+  provisioner "powershell" {
+    inline = [
+      "Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0",
+      "Set-Service -Name sshd -StartupType Automatic",
+      "New-NetFirewallRule -Name sshd -DisplayName 'OpenSSH Server' -Enabled True -Direction Inbound -Protocol TCP -Action Allow -LocalPort 22 -ErrorAction SilentlyContinue"
+    ]
+  }
+
+  # 2. Scheduled Task: Sysprep strips SSH host keys. This ensures SSH starts and generates keys on first boot, then deletes itself.
+  provisioner "powershell" {
+    inline = [
+      "$action    = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument '-ExecutionPolicy Bypass -Command \"Start-Service sshd; Unregister-ScheduledTask -TaskName EnableOpenSSH -Confirm:$false\"'",
+      "$trigger   = New-ScheduledTaskTrigger -AtStartup",
+      "$principal = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -RunLevel Highest",
+      "Register-ScheduledTask -TaskName 'EnableOpenSSH' -Action $action -Trigger $trigger -Principal $principal -Force"
+    ]
+  }
+
+  # 3. Upload Hardening Scripts LAST
   provisioner "file" {
     source      = "./scripts/cis-harden.ps1"
     destination = "C:\\Windows\\Temp\\cis-harden.ps1"
@@ -50,6 +70,9 @@ build {
     destination = "C:\\Windows\\Temp\\wrapper.ps1"
   }
 
+  # 4. Execute Hardening and Sysprep in ONE breath
+  # Packer will wait for this script to finish. When sysprep shuts down the VM, 
+  # Packer detects the disconnect, assumes completion, and moves to capture.
   provisioner "powershell" {
     environment_vars = [
       "LOCAL_ADMIN_USERNAME=${var.local_admin_username}",
@@ -58,39 +81,6 @@ build {
     valid_exit_codes = [0, 1]
     inline = [
       "& 'C:\\Windows\\Temp\\wrapper.ps1'"
-    ]
-  }
-
-  provisioner "windows-restart" {
-    restart_timeout       = "20m"
-    pause_before          = "30s"
-    restart_check_command = "powershell -command \"& {Write-Output 'restarted'}\""
-  }
-
-  # Install OpenSSH for the final image
-  provisioner "powershell" {
-    inline = [
-      "Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0",
-      "Set-Service -Name sshd -StartupType Automatic",
-      "New-NetFirewallRule -Name sshd -DisplayName 'OpenSSH Server' -Enabled True -Direction Inbound -Protocol TCP -Action Allow -LocalPort 22 -ErrorAction SilentlyContinue"
-    ]
-  }
-
-  # Scheduled Task: Sysprep strips SSH host keys. This ensures SSH starts and generates keys on first boot, then deletes itself.
-  provisioner "powershell" {
-    inline = [
-      "$action    = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument '-ExecutionPolicy Bypass -Command \"Start-Service sshd; Unregister-ScheduledTask -TaskName EnableOpenSSH -Confirm:$false\"'",
-      "$trigger   = New-ScheduledTaskTrigger -AtStartup",
-      "$principal = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -RunLevel Highest",
-      "Register-ScheduledTask -TaskName 'EnableOpenSSH' -Action $action -Trigger $trigger -Principal $principal -Force"
-    ]
-  }
-
-  # Standard Azure Windows Sysprep Loop
-  provisioner "powershell" {
-    inline = [
-      "& $env:SystemRoot\\System32\\Sysprep\\Sysprep.exe /oobe /generalize /quiet /quit",
-      "while($true) { $imageState = (Get-ItemProperty HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Setup\\State).ImageState; if($imageState -ne 'IMAGE_STATE_GENERALIZE_RESEAL_TO_OOBE') { Start-Sleep -s 10 } else { break } }"
     ]
   }
 }
