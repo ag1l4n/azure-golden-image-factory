@@ -22,10 +22,11 @@ source "azure-arm" "windows" {
   communicator             = "ssh"
   ssh_username             = "packer"
   ssh_password             = var.ssh_password
+  ssh_port                 = 22
   ssh_timeout              = "30m"
   pause_before_connecting  = "3m"              # ← added: wait for Windows to fully boot
   allowed_inbound_ip_addresses = ["0.0.0.0/0"]
-  communicator_port        = 22
+  
 
   # custom_data is a SOURCE attribute — moved here from build block
   custom_data = base64encode(<<-EOF
