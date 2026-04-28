@@ -9,47 +9,25 @@ packer {
 
 source "azure-arm" "windows" {
   subscription_id = var.subscription_id
+  tenant_id       = var.tenant_id 
   client_id       = var.client_id
   client_secret   = var.client_secret
 
-  image_publisher = "MicrosoftWindowsServer"   # ← fixed
+  image_publisher = "MicrosoftWindowsServer"
   image_offer     = "WindowsServer"
   image_sku       = "2022-datacenter-azure-edition"
+  os_type         = "Windows"
 
   build_resource_group_name = var.resource_group
   vm_size                   = var.vm_size
 
-  communicator             = "ssh"
-  ssh_username             = "packer"
-  ssh_password             = var.ssh_password
-  ssh_port                 = 22
-  ssh_timeout              = "30m"
-  pause_before_connecting  = "3m"              # ← added: wait for Windows to fully boot
-  allowed_inbound_ip_addresses = ["0.0.0.0/0"]
-  
-
-  # custom_data is a SOURCE attribute — moved here from build block
-  custom_data = base64encode(<<-EOF
-    <powershell>
-    Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0 -ErrorAction SilentlyContinue
-    Start-Service sshd -ErrorAction SilentlyContinue
-    Set-Service -Name sshd -StartupType Automatic
-    $sshdConfig = 'C:\ProgramData\ssh\sshd_config'
-    if (Test-Path $sshdConfig) {
-      $content = Get-Content $sshdConfig
-      $content = $content -replace '#PasswordAuthentication yes', 'PasswordAuthentication yes'
-      $content = $content -replace 'PasswordAuthentication no', 'PasswordAuthentication yes'
-      $content | Set-Content $sshdConfig
-    } else {
-      'PasswordAuthentication yes' | Out-File $sshdConfig -Encoding UTF8
-    }
-    New-NetFirewallRule -Name 'OpenSSH-Server-In-TCP' -DisplayName 'OpenSSH Server (sshd)' -Enabled True -Direction Inbound -Protocol TCP -Action Allow -LocalPort 22 -ErrorAction SilentlyContinue
-    Restart-Service sshd -Force
-    </powershell>
-  EOF
-  )
-
-  os_type = "Windows"
+  # --- WinRM Communicator (Native/Seamless for Azure Windows) ---
+  communicator   = "winrm"
+  winrm_use_ssl  = true
+  winrm_insecure = true
+  winrm_timeout  = "30m"
+  winrm_username = "packer"
+  # Note: Packer automatically generates a random winrm_password for Azure Windows
 
   shared_image_gallery_destination {
     resource_group      = var.resource_group
@@ -90,24 +68,26 @@ build {
     restart_check_command = "powershell -command \"& {Write-Output 'restarted'}\""
   }
 
+  # Install OpenSSH for the final image
   provisioner "powershell" {
     inline = [
       "Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0",
-      "Start-Service sshd",
       "Set-Service -Name sshd -StartupType Automatic",
       "New-NetFirewallRule -Name sshd -DisplayName 'OpenSSH Server' -Enabled True -Direction Inbound -Protocol TCP -Action Allow -LocalPort 22 -ErrorAction SilentlyContinue"
     ]
   }
 
+  # Scheduled Task: Sysprep strips SSH host keys. This ensures SSH starts and generates keys on first boot, then deletes itself.
   provisioner "powershell" {
     inline = [
-      "$action    = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument '-ExecutionPolicy Bypass -Command \"Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0; Start-Service sshd; Set-Service -Name sshd -StartupType Automatic; Unregister-ScheduledTask -TaskName EnableOpenSSH -Confirm:$false\"'",
+      "$action    = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument '-ExecutionPolicy Bypass -Command \"Start-Service sshd; Unregister-ScheduledTask -TaskName EnableOpenSSH -Confirm:$false\"'",
       "$trigger   = New-ScheduledTaskTrigger -AtStartup",
       "$principal = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -RunLevel Highest",
       "Register-ScheduledTask -TaskName 'EnableOpenSSH' -Action $action -Trigger $trigger -Principal $principal -Force"
     ]
   }
 
+  # Standard Azure Windows Sysprep Loop
   provisioner "powershell" {
     inline = [
       "& $env:SystemRoot\\System32\\Sysprep\\Sysprep.exe /oobe /generalize /quiet /quit",
