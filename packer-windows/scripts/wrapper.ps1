@@ -3,7 +3,8 @@
 $username = $env:LOCAL_ADMIN_USERNAME
 $password = $env:LOCAL_ADMIN_PASSWORD
 
-$cisScript = 'C:\Windows\Temp\cis-harden.ps1'
+# Updated to the trusted path
+$cisScript = 'C:\Windows\PackerBuild\cis-harden.ps1'
 
 # --- Function Overrides for Automation ---
 function global:Read-Host {
@@ -38,8 +39,8 @@ try {
 } finally {
     Write-Host 'Executing Sysprep directly from wrapper...'
     
-    # Clean up the script file before sysprep seals the image
-    Remove-Item $cisScript -Force -ErrorAction SilentlyContinue
+    # Clean up the entire PackerBuild folder before sysprep seals the image
+    Remove-Item 'C:\Windows\PackerBuild' -Recurse -Force -ErrorAction SilentlyContinue
 
     # Run Sysprep immediately
     & $env:SystemRoot\System32\Sysprep\Sysprep.exe /oobe /generalize /quiet /quit
