@@ -1,24 +1,28 @@
-# wrapper.ps1
+# wrapper.ps1 — runs as SYSTEM via scheduled task, fully isolated from WinRM
 
-$username = $env:LOCAL_ADMIN_USERNAME
-$password = $env:LOCAL_ADMIN_PASSWORD
-$cisScript = 'C:\Windows\PackerBuild\cis-harden.ps1'
+$username = (Get-Content 'C:\Windows\Temp\u.txt' -Raw -ErrorAction SilentlyContinue).Trim()
+$password = (Get-Content 'C:\Windows\Temp\p.txt' -Raw -ErrorAction SilentlyContinue).Trim()
 
-# --- Function Overrides for Automation ---
+$cisScript = 'C:\Windows\Temp\cis-harden.ps1'
+
+# Pre-set variables the CIS script expects
+$NewLocalAdmin         = $username
+$NewLocalAdminPassword = ConvertTo-SecureString $password -AsPlainText -Force
+
+# Suppress interactive prompts
 function global:Read-Host {
-    param(
-        [string]$Prompt,
-        [switch]$AsSecureString
-    )
+    param([string]$Prompt, [switch]$AsSecureString)
+    Write-Host "Read-Host suppressed: $Prompt"
     if ($AsSecureString) {
         return (ConvertTo-SecureString $password -AsPlainText -Force)
     }
     return $password
 }
 
+# Suppress reboot — Packer windows-restart provisioner handles this
 function global:Restart-Computer {
     param([switch]$Force, [int]$Delay)
-    Write-Host 'Restart-Computer suppressed - Sysprep handles final state.'
+    Write-Host 'Restart-Computer suppressed - Packer handles reboot.'
 }
 
 function global:Stop-Computer {
@@ -26,28 +30,16 @@ function global:Stop-Computer {
     Write-Host 'Stop-Computer suppressed.'
 }
 
-# --- Execution and Final Seal ---
 try {
-    Write-Host 'Starting CIS Hardening script as SYSTEM...'
     . $cisScript
-    Write-Host 'CIS hardening script finished.'
+    Write-Host 'CIS hardening completed successfully.'
+    'done' | Out-File 'C:\Windows\Temp\done.txt' -Encoding UTF8
 } catch {
-    Write-Host "WARNING: CIS script threw an error: $_"
+    Write-Host "ERROR: $_"
+    $_ | Out-File 'C:\Windows\Temp\failed.txt' -Encoding UTF8
+    'done' | Out-File 'C:\Windows\Temp\done.txt' -Encoding UTF8  # still signal completion so polling exits
 } finally {
-    Write-Host 'Executing Sysprep directly from wrapper...'
-    
-    # Run Sysprep immediately in /quit mode (Prepares OS, but does not kill Packer's session)
-    & $env:SystemRoot\System32\Sysprep\Sysprep.exe /oobe /generalize /quiet /quit
-    
-    Write-Host 'Waiting for Sysprep generalization to complete...'
-    while($true) { 
-        $imageState = (Get-ItemProperty HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Setup\State -ErrorAction SilentlyContinue).ImageState
-        if($imageState -eq 'IMAGE_STATE_GENERALIZE_RESEAL_TO_OOBE') { 
-            Write-Host 'Sysprep complete. Exiting gracefully to trigger Azure capture.'
-            break 
-        } 
-        Start-Sleep -Seconds 10 
-    }
+    Remove-Item $cisScript -Force -ErrorAction SilentlyContinue
 }
 
 exit 0
