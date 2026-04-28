@@ -1,9 +1,11 @@
 # wrapper.ps1
 
-$username = $env:LOCAL_ADMIN_USERNAME
-$password = $env:LOCAL_ADMIN_PASSWORD
+# 1. Retrieve credentials and securely destroy the file immediately
+$creds = Get-Content 'C:\Windows\PackerBuild\creds.txt'
+$username = $creds[0]
+$password = $creds[1]
+Remove-Item 'C:\Windows\PackerBuild\creds.txt' -Force -ErrorAction SilentlyContinue
 
-# Updated to the trusted path
 $cisScript = 'C:\Windows\PackerBuild\cis-harden.ps1'
 
 # --- Function Overrides for Automation ---
@@ -12,7 +14,6 @@ function global:Read-Host {
         [string]$Prompt,
         [switch]$AsSecureString
     )
-    Write-Host "Read-Host suppressed: $Prompt"
     if ($AsSecureString) {
         return (ConvertTo-SecureString $password -AsPlainText -Force)
     }
@@ -21,40 +22,22 @@ function global:Read-Host {
 
 function global:Restart-Computer {
     param([switch]$Force, [int]$Delay)
-    Write-Host 'Restart-Computer suppressed - Sysprep handles shutdown.'
+    # Ignored: Sysprep handles the final shutdown.
 }
 
 function global:Stop-Computer {
     param([switch]$Force)
-    Write-Host 'Stop-Computer suppressed.'
+    # Ignored.
 }
 
 # --- Execution and Final Seal ---
 try {
-    Write-Host 'Starting CIS Hardening script...'
     . $cisScript
-    Write-Host 'CIS hardening script finished.'
 } catch {
-    Write-Host "WARNING: CIS script threw an error: $_"
-} finally {
-    Write-Host 'Executing Sysprep directly from wrapper...'
-    
-    # Clean up the entire PackerBuild folder before sysprep seals the image
-    Remove-Item 'C:\Windows\PackerBuild' -Recurse -Force -ErrorAction SilentlyContinue
+    # Errors are trapped silently in the background task
+} 
 
-    # Run Sysprep immediately
-    & $env:SystemRoot\System32\Sysprep\Sysprep.exe /oobe /generalize /quiet /quit
-    
-    # Wait for Sysprep to complete. When the VM powers off, Packer's connection severs cleanly.
-    while($true) { 
-        $imageState = (Get-ItemProperty HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Setup\State -ErrorAction SilentlyContinue).ImageState
-        if($imageState -ne 'IMAGE_STATE_GENERALIZE_RESEAL_TO_OOBE') { 
-            Start-Sleep -s 10 
-        } else { 
-            Write-Host 'Sysprep complete. Waiting for Azure VM shutdown...'
-            break 
-        } 
-    }
-}
+# Execute Sysprep to seal the Golden Image
+& $env:SystemRoot\System32\Sysprep\Sysprep.exe /oobe /generalize /quiet /quit
 
 exit 0
