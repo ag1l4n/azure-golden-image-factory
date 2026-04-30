@@ -61,6 +61,7 @@ build {
   provisioner "powershell" {
     elevated_user     = "packer"
     elevated_password = var.ssh_password
+    valid_exit_codes  = [0, 267014]
     inline = [
       # Write credentials to temp files so the SYSTEM task can read them
       # (Scheduled tasks don't inherit the WinRM session's environment)
