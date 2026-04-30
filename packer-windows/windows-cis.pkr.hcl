@@ -14,17 +14,16 @@ source "azure-arm" "windows" {
   client_id       = var.client_id
   client_secret   = var.client_secret
 
-  # Switch back to g2 — WinRM works correctly on this SKU
   image_publisher = "MicrosoftWindowsServer"
   image_offer     = "WindowsServer"
-  image_sku       = "2022-datacenter-g2"    # ← changed back
+  image_sku       = "2022-datacenter-g2"
 
   build_resource_group_name = var.resource_group
   vm_size                   = var.vm_size
 
   communicator   = "winrm"
   winrm_username = "packer"
-  winrm_password = var.ssh_password
+  # No winrm_password — Packer uses KeyVault cert auth automatically
   winrm_use_ssl  = true
   winrm_insecure = true
   winrm_timeout  = "15m"
@@ -59,8 +58,6 @@ build {
   # The CIS script runs in an isolated SYSTEM process — WinRM
   # auth is never touched by secedit or security policy changes.
   provisioner "powershell" {
-    elevated_user     = "packer"
-    elevated_password = var.ssh_password
     valid_exit_codes  = [0, 267014]
     inline = [
       # Write credentials to temp files so the SYSTEM task can read them
@@ -122,8 +119,6 @@ build {
 
   # --- STEP 4: Enable OpenSSH for scan phase ---
   provisioner "powershell" {
-    elevated_user     = "packer"
-    elevated_password = var.ssh_password
     inline = [
       "Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0 -ErrorAction SilentlyContinue",
       "Start-Service sshd",
@@ -146,8 +141,6 @@ build {
   # Sysprep resets service states — this task re-enables SSH on first boot
   # of any VM provisioned from the golden image
   provisioner "powershell" {
-    elevated_user     = "packer"
-    elevated_password = var.ssh_password
     inline = [
       "$a = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument '-ExecutionPolicy Bypass -Command \"Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0; Start-Service sshd; Set-Service -Name sshd -StartupType Automatic; Unregister-ScheduledTask -TaskName EnableOpenSSH -Confirm:$false\"'",
       "$t = New-ScheduledTaskTrigger -AtStartup",
@@ -160,8 +153,6 @@ build {
   # --- STEP 6: Sysprep ---
   # Must be last — generalizes the image for Azure gallery distribution
   provisioner "powershell" {
-    elevated_user     = "packer"
-    elevated_password = var.ssh_password
     inline = [
       "& $env:SystemRoot\\System32\\Sysprep\\Sysprep.exe /oobe /generalize /quiet /quit",
       "while($true) {",
