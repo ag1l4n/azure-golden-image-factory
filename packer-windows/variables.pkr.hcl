@@ -50,7 +50,3 @@ variable "local_admin_password" {
   sensitive = true
 }
 
-variable "ssh_password" {
-  type      = string
-  sensitive = true
-}
