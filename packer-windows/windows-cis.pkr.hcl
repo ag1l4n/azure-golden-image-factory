@@ -14,14 +14,14 @@ source "azure-arm" "windows" {
   client_id       = var.client_id
   client_secret   = var.client_secret
 
+  # Switch back to g2 — WinRM works correctly on this SKU
   image_publisher = "MicrosoftWindowsServer"
   image_offer     = "WindowsServer"
-  image_sku       = "2022-datacenter-azure-edition"
+  image_sku       = "2022-datacenter-g2"    # ← changed back
 
   build_resource_group_name = var.resource_group
   vm_size                   = var.vm_size
 
-  # WinRM communicator
   communicator   = "winrm"
   winrm_username = "packer"
   winrm_password = var.ssh_password
