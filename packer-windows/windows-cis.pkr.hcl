@@ -169,7 +169,6 @@ source "azure-arm" "win2022_cis_l1" {
 
   # Build environment — same resource group as the gallery for simplicity
   build_resource_group_name = var.resource_group
-  location                  = var.location
   vm_size                   = var.vm_size
   os_disk_size_gb           = var.os_disk_size_gb
 
