@@ -16,7 +16,7 @@ on:
           - rhel
           - windows
       scan_only:
-        description: 'Skip Packer Build (Run OpenSCAP Scan Only)'
+        description: 'Skip Packer Build (Run Compliance Scan Only)'
         required: true
         default: false
         type: boolean
@@ -41,14 +41,14 @@ permissions:
   contents: write
 
 jobs:
-  # ==========================================
+  # ============================================================
   # STAGE 1: PREPARE (Calculate SemVer & Build Matrix)
-  # ==========================================
+  # ============================================================
   prepare:
     name: Prepare Pipeline & SemVer
     runs-on: ubuntu-latest
     outputs:
-      new_version: ${{ steps.version.outputs.clean_version }}  
+      new_version:   ${{ steps.version.outputs.clean_version }}
       matrix_config: ${{ steps.set-matrix.outputs.matrix }}
     steps:
       - name: Checkout Code
@@ -68,8 +68,8 @@ jobs:
         id: version
         run: |
           RAW="${{ steps.semver.outputs.new_version }}"
-          CLEAN="${RAW#v}"          # strip leading 'v' if present
-          CLEAN="${CLEAN%%-*}"      # strip pre-release suffix e.g. -SemanticVersioning.0
+          CLEAN="${RAW#v}"        # strip leading 'v' if present
+          CLEAN="${CLEAN%%-*}"    # strip pre-release suffix
           echo "clean_version=$CLEAN" >> $GITHUB_OUTPUT
 
       - name: Set Dynamic Matrix
@@ -86,32 +86,42 @@ jobs:
             echo 'matrix=["windows"]' >> $GITHUB_OUTPUT
           fi
 
-  # ==========================================
+  # ============================================================
   # STAGE 2: BUILD & SCAN (Parallel Matrix)
-  # ==========================================
+  # ============================================================
   matrix-factory:
     name: Build & Scan (${{ matrix.os }})
     needs: prepare
     runs-on: ubuntu-latest
     strategy:
-      fail-fast: false  # Allow the other OS leg to complete even if one fails
+      fail-fast: false  # Let other OS legs complete even if one fails
       matrix:
         os: ${{ fromJson(needs.prepare.outputs.matrix_config) }}
 
     env:
-      AZURE_RG: ${{ vars.AZURE_RG }}
-      AZURE_GALLERY: ${{ vars.AZURE_GALLERY }}
+      AZURE_RG:       ${{ vars.AZURE_RG }}
+      AZURE_GALLERY:  ${{ vars.AZURE_GALLERY }}
       AZURE_LOCATION: ${{ inputs.azure_region || vars.AZURE_LOCATION }}
-      VM_SIZE: ${{ vars.VM_SIZE }}
-      PKR_VAR_resource_group: ${{ vars.AZURE_RG }}
-      PKR_VAR_gallery_name: ${{ vars.AZURE_GALLERY }}
-      PKR_VAR_location: ${{ inputs.azure_region || vars.AZURE_LOCATION }}
-      PKR_VAR_vm_size: ${{ vars.VM_SIZE }}
-      PKR_VAR_subscription_id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-      PKR_VAR_client_id: ${{ secrets.AZURE_CLIENT_ID }}
-      PKR_VAR_client_secret: ${{ secrets.AZURE_CLIENT_SECRET }}
-      PKR_VAR_local_admin_username: sysadmin
-      PKR_VAR_local_admin_password: ${{ secrets.WINDOWS_LOCAL_ADMIN_PASSWORD }}
+      VM_SIZE:        ${{ vars.VM_SIZE }}
+
+      # ── Packer variables shared across all OS legs ──────────────────────
+      PKR_VAR_resource_group:        ${{ vars.AZURE_RG }}
+      PKR_VAR_gallery_name:          ${{ vars.AZURE_GALLERY }}
+      PKR_VAR_location:              ${{ inputs.azure_region || vars.AZURE_LOCATION }}
+      PKR_VAR_vm_size:               ${{ vars.VM_SIZE }}
+      PKR_VAR_subscription_id:       ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      PKR_VAR_client_id:             ${{ secrets.AZURE_CLIENT_ID }}
+      PKR_VAR_client_secret:         ${{ secrets.AZURE_CLIENT_SECRET }}
+
+      # ── Linux-only Packer variables (declared in ubuntu/rhel templates) ──
+      PKR_VAR_local_admin_username:  sysadmin
+      PKR_VAR_local_admin_password:  ${{ secrets.WINDOWS_LOCAL_ADMIN_PASSWORD }}
+
+      # ── Windows-only Packer variables ────────────────────────────────────
+      # PKR_VAR_tenant_id is required by the azure-arm plugin for Windows builds.
+      # Add AZURE_TENANT_ID to your repository secrets.
+      # (Extract it from your AZURE_CREDENTIALS JSON: .tenantId)
+      PKR_VAR_tenant_id: ${{ secrets.AZURE_TENANT_ID }}
 
     steps:
       - name: Checkout Code
@@ -122,24 +132,67 @@ jobs:
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
+      # ──────────────────────────────────────────────────────────────────────
+      # PACKER BUILD PHASE
+      # ──────────────────────────────────────────────────────────────────────
+
       - name: Setup HashiCorp Packer
         if: ${{ inputs.scan_only != true }}
         uses: hashicorp/setup-packer@main
         with:
           version: 'latest'
 
-      # --- PACKER BUILD PHASE ---
+      # Windows builds need Ansible + WinRM libraries on the runner.
+      # This step is a no-op for ubuntu/rhel (those templates use SSH provisioners).
+      - name: Install Ansible & WinRM dependencies (Windows only)
+        if: ${{ inputs.scan_only != true && matrix.os == 'windows' }}
+        run: |
+          pip install \
+            ansible~=9.0 \
+            pywinrm \
+            python-xmltodict \
+            passlib \
+            jmespath
+
+      - name: Install Ansible Galaxy roles (Windows only)
+        if: ${{ inputs.scan_only != true && matrix.os == 'windows' }}
+        working-directory: ./ansible
+        run: |
+          ansible-galaxy install -r requirements.yml --roles-path roles/
+
       - name: Packer Init
         if: ${{ inputs.scan_only != true }}
         run: packer init .
-        working-directory: ${{ matrix.os == 'ubuntu' && './packer' || matrix.os == 'rhel' && './packer-rhel' || './packer-windows' }}
+        working-directory: >-
+          ${{ matrix.os == 'ubuntu' && './packer'
+           || matrix.os == 'rhel'    && './packer-rhel'
+           ||                           './packer-windows' }}
 
       - name: Build Golden Image
         if: ${{ inputs.scan_only != true }}
-        run: packer build -force -var "image_version=${{ needs.prepare.outputs.new_version }}" .
-        working-directory: ${{ matrix.os == 'ubuntu' && './packer' || matrix.os == 'rhel' && './packer-rhel' || './packer-windows' }}
+        run: |
+          packer build \
+            -force \
+            -var "image_version=${{ needs.prepare.outputs.new_version }}" \
+            .
+        working-directory: >-
+          ${{ matrix.os == 'ubuntu' && './packer'
+           || matrix.os == 'rhel'    && './packer-rhel'
+           ||                           './packer-windows' }}
+        env:
+          # Pass the image definition name for Windows so the gallery
+          # destination matches what the scan step looks up.
+          # For ubuntu/rhel, PKR_VAR_image_definition_name is ignored
+          # (those templates don't declare it).
+          PKR_VAR_image_definition_name: >-
+            ${{ matrix.os == 'windows'
+             && (inputs.windows_image_name_override || 'win-server-2022-cis-l1')
+             || '' }}
 
-      # --- DEPLOY EPHEMERAL VM ---
+      # ──────────────────────────────────────────────────────────────────────
+      # DEPLOY EPHEMERAL VM FOR SCANNING
+      # ──────────────────────────────────────────────────────────────────────
+
       - name: Generate Ephemeral SSH Key
         run: ssh-keygen -t ed25519 -f ~/.ssh/scanner_key -N ""
 
@@ -151,91 +204,105 @@ jobs:
           elif [[ "${{ matrix.os }}" == "rhel" ]]; then
             echo "name=${{ inputs.rhel_image_name_override || 'rhel-nvme-cis' }}" >> $GITHUB_OUTPUT
           else
-            echo "name=${{ inputs.windows_image_name_override || 'windows-server-2022-cis' }}" >> $GITHUB_OUTPUT
+            echo "name=${{ inputs.windows_image_name_override || 'win-server-2022-cis-l1' }}" >> $GITHUB_OUTPUT
           fi
 
       - name: Deploy Ephemeral VM
         run: |
           IMAGE_ID=$(az sig image-definition show \
-            --resource-group ${{ env.AZURE_RG }} \
-            --gallery-name ${{ env.AZURE_GALLERY }} \
+            --resource-group  ${{ env.AZURE_RG }} \
+            --gallery-name    ${{ env.AZURE_GALLERY }} \
             --gallery-image-definition ${{ steps.image.outputs.name }} \
             --query id --output tsv)
 
           if [[ "${{ matrix.os }}" == "windows" ]]; then
+            # Windows VM: OpenSSH is enabled in the image so SCP works.
+            # NSG rule SSH (port 22) is opened for the scanner — the
+            # CIS WinRM-disabling controls only affect WinRM (5985/5986).
             az vm create \
-              --resource-group ${{ env.AZURE_RG }} \
-              --name scan-${{ matrix.os }}-vm \
-              --image $IMAGE_ID \
-              --admin-username sysadmin \
-              --ssh-key-values ~/.ssh/scanner_key.pub \
-              --location ${{ env.AZURE_LOCATION }} \
-              --size ${{ env.VM_SIZE }} \
+              --resource-group  ${{ env.AZURE_RG }} \
+              --name            scan-${{ matrix.os }}-vm \
+              --image           "$IMAGE_ID" \
+              --admin-username  sysadmin \
+              --ssh-key-values  ~/.ssh/scanner_key.pub \
+              --location        ${{ env.AZURE_LOCATION }} \
+              --size            ${{ env.VM_SIZE }} \
               --nic-delete-option delete \
               --os-disk-delete-option delete \
               --nsg-rule SSH
           else
             az vm create \
-              --resource-group ${{ env.AZURE_RG }} \
-              --name scan-${{ matrix.os }}-vm \
-              --image $IMAGE_ID \
-              --admin-username sysadmin \
-              --ssh-key-values ~/.ssh/scanner_key.pub \
-              --location ${{ env.AZURE_LOCATION }} \
-              --size ${{ env.VM_SIZE }} \
+              --resource-group  ${{ env.AZURE_RG }} \
+              --name            scan-${{ matrix.os }}-vm \
+              --image           "$IMAGE_ID" \
+              --admin-username  sysadmin \
+              --ssh-key-values  ~/.ssh/scanner_key.pub \
+              --location        ${{ env.AZURE_LOCATION }} \
+              --size            ${{ env.VM_SIZE }} \
               --nic-delete-option delete \
               --os-disk-delete-option delete
           fi
 
-          VM_IP=$(az vm show -d -g ${{ env.AZURE_RG }} -n scan-${{ matrix.os }}-vm --query publicIps -o tsv)
+          VM_IP=$(az vm show -d \
+            -g ${{ env.AZURE_RG }} \
+            -n scan-${{ matrix.os }}-vm \
+            --query publicIps -o tsv)
           echo "VM_IP=$VM_IP" >> $GITHUB_ENV
           sleep 20
 
           if [[ "${{ matrix.os }}" == "windows" ]]; then
-            echo "Waiting for WinRM/SSH on Windows VM ($VM_IP)..."
+            echo "Waiting for SSH on Windows VM ($VM_IP)..."
             for i in {1..30}; do
-              if nc -zw3 $VM_IP 22 2>/dev/null; then
+              if nc -zw3 "$VM_IP" 22 2>/dev/null; then
                 echo "Port 22 open after attempt $i."
                 break
               fi
               echo "Attempt $i/30 — not ready, retrying in 15s..."
               sleep 15
-              if [ $i -eq 30 ]; then
-                echo "ERROR: Windows VM never became reachable."
+              if [ "$i" -eq 30 ]; then
+                echo "ERROR: Windows VM SSH never became reachable."
                 exit 1
               fi
             done
+            # Extra grace period for Windows to finish first-boot tasks
             sleep 30
           else
             echo "Waiting for SSH on ${{ matrix.os }} VM ($VM_IP)..."
             for i in {1..20}; do
-              if ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 -i ~/.ssh/scanner_key sysadmin@$VM_IP exit 0 2>/dev/null; then
+              if ssh -o StrictHostKeyChecking=no \
+                     -o ConnectTimeout=5 \
+                     -i ~/.ssh/scanner_key \
+                     sysadmin@"$VM_IP" exit 0 2>/dev/null; then
                 echo "SSH is up after attempt $i."
                 break
               fi
-              echo "Attempt $i/20 — SSH not ready yet, retrying in 10s..."
+              echo "Attempt $i/20 — SSH not ready, retrying in 10s..."
               sleep 10
-              if [ $i -eq 20 ]; then
+              if [ "$i" -eq 20 ]; then
                 echo "ERROR: SSH never became available after 200s."
                 exit 1
               fi
             done
           fi
 
-      # --- SCAN PHASE ---
+      # ──────────────────────────────────────────────────────────────────────
+      # SCAN PHASE
+      # ──────────────────────────────────────────────────────────────────────
+
       - name: Run Ubuntu OpenSCAP & Download Report
         if: ${{ matrix.os == 'ubuntu' }}
         run: |
-          ssh -o StrictHostKeyChecking=no -i ~/.ssh/scanner_key sysadmin@${{ env.VM_IP }} << 'EOF'
-            sudo apt-get update
+          ssh -o StrictHostKeyChecking=no -i ~/.ssh/scanner_key \
+              sysadmin@${{ env.VM_IP }} << 'EOF'
+            sudo apt-get update -qq
             sudo apt-get install -y libopenscap8 unzip wget
-            wget https://github.com/ComplianceAsCode/content/releases/download/v0.1.74/scap-security-guide-0.1.74.zip
-            unzip scap-security-guide-0.1.74.zip
+            wget -q https://github.com/ComplianceAsCode/content/releases/download/v0.1.74/scap-security-guide-0.1.74.zip
+            unzip -q scap-security-guide-0.1.74.zip
             sudo oscap xccdf eval \
               --profile xccdf_org.ssgproject.content_profile_cis_level1_server \
               --report /tmp/ubuntu-cis-report.html \
               scap-security-guide-0.1.74/ssg-ubuntu2204-ds.xml || true
-            sudo mv /tmp/ubuntu-cis-report.html /home/sysadmin/ubuntu-cis-report.html
+            sudo cp /tmp/ubuntu-cis-report.html /home/sysadmin/
             sudo chown sysadmin:sysadmin /home/sysadmin/ubuntu-cis-report.html
           EOF
           scp -o StrictHostKeyChecking=no -i ~/.ssh/scanner_key \
@@ -245,62 +312,131 @@ jobs:
       - name: Run RHEL OpenSCAP & Download Report
         if: ${{ matrix.os == 'rhel' }}
         run: |
-          ssh -o StrictHostKeyChecking=no -i ~/.ssh/scanner_key sysadmin@${{ env.VM_IP }} << 'EOF'
+          ssh -o StrictHostKeyChecking=no -i ~/.ssh/scanner_key \
+              sysadmin@${{ env.VM_IP }} << 'EOF'
             sudo dnf install -y openscap-scanner scap-security-guide
             sudo oscap xccdf eval \
               --profile xccdf_org.ssgproject.content_profile_cis_server_l1 \
               --report /tmp/rhel-cis-report.html \
               /usr/share/xml/scap/ssg/content/ssg-rhel9-ds.xml || true
-            sudo mv /tmp/rhel-cis-report.html /home/sysadmin/rhel-cis-report.html
+            sudo cp /tmp/rhel-cis-report.html /home/sysadmin/
             sudo chown sysadmin:sysadmin /home/sysadmin/rhel-cis-report.html
           EOF
           scp -o StrictHostKeyChecking=no -i ~/.ssh/scanner_key \
             sysadmin@${{ env.VM_IP }}:/home/sysadmin/rhel-cis-report.html \
             ./rhel-cis-report.html
 
-      - name: Prepare Windows Scan Script
-        if: ${{ matrix.os == 'windows' }}
+      # ── Windows scan: pull the pre-baked report ──────────────────────────
+      #
+      # The Packer build bakes a compliance report into the image at:
+      #   C:\CIS-Reports\compliance-report-<timestamp>.html
+      #
+      # This approach replaces the previous "install OpenSCAP at scan time"
+      # strategy, which required ~15 minutes of Chocolatey + SSG downloads
+      # and frequently failed on transient network errors.
+      #
+      # The pre-baked report captures the EXACT state of the image at build
+      # time (post-hardening, pre-sysprep) — which is more accurate than
+      # a post-deployment scan that may differ due to OOBE changes.
+      #
+      # If a full CIS-CAT Pro scan is required (e.g. for formal audit evidence),
+      # set WINDOWS_RUN_FULL_SCAN=true in repository variables and the
+      # fallback block below will run it.
+      # ─────────────────────────────────────────────────────────────────────
+
+      - name: Retrieve Pre-Baked CIS Report from Windows VM
+        if: ${{ matrix.os == 'windows' && vars.WINDOWS_RUN_FULL_SCAN != 'true' }}
         run: |
-          cat > /tmp/windows-scan.ps1 << 'PSEOF'
+          echo "Locating pre-baked CIS compliance report in C:\CIS-Reports\..."
+
+          # List available reports — the build step generates one per build run
+          ssh -o StrictHostKeyChecking=no -i ~/.ssh/scanner_key \
+              sysadmin@${{ env.VM_IP }} \
+              "powershell -Command \"Get-ChildItem 'C:\\CIS-Reports' | Format-Table Name, LastWriteTime -AutoSize\""
+
+          # Copy the most recent HTML report to the runner
+          ssh -o StrictHostKeyChecking=no -i ~/.ssh/scanner_key \
+              sysadmin@${{ env.VM_IP }} \
+              "powershell -Command \"\
+                \$latest = Get-ChildItem 'C:\\CIS-Reports\\*.html' \
+                  | Sort-Object LastWriteTime -Descending \
+                  | Select-Object -First 1; \
+                Copy-Item \$latest.FullName 'C:\\Users\\sysadmin\\windows-cis-report.html'\""
+
+          scp -o StrictHostKeyChecking=no -i ~/.ssh/scanner_key \
+            "sysadmin@${{ env.VM_IP }}:C:/Users/sysadmin/windows-cis-report.html" \
+            ./windows-cis-report.html
+
+          echo "Report retrieved successfully."
+          echo "Size: $(du -sh ./windows-cis-report.html | cut -f1)"
+
+      # ── Windows fallback: full OpenSCAP scan (opt-in) ────────────────────
+      # Enable by setting repository variable WINDOWS_RUN_FULL_SCAN=true.
+      # This installs OpenSCAP via Chocolatey and runs the full SCAP benchmark.
+      # Takes ~20 minutes and requires outbound internet from the scan VM.
+      # ─────────────────────────────────────────────────────────────────────
+
+      - name: Prepare Full Windows OpenSCAP Scan Script
+        if: ${{ matrix.os == 'windows' && vars.WINDOWS_RUN_FULL_SCAN == 'true' }}
+        run: |
+          cat > /tmp/windows-full-scan.ps1 << 'PSEOF'
           Set-ExecutionPolicy Bypass -Scope Process -Force
           [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+
+          Write-Host "Installing Chocolatey..."
           iex ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))
+
+          Write-Host "Installing OpenSCAP..."
           choco install openscap -y --no-progress
-          Invoke-WebRequest -Uri 'https://github.com/ComplianceAsCode/content/releases/download/v0.1.74/scap-security-guide-0.1.74.zip' -OutFile 'C:\ssg.zip'
+
+          Write-Host "Downloading SCAP Security Guide..."
+          Invoke-WebRequest `
+            -Uri 'https://github.com/ComplianceAsCode/content/releases/download/v0.1.74/scap-security-guide-0.1.74.zip' `
+            -OutFile 'C:\ssg.zip'
           Expand-Archive -Path 'C:\ssg.zip' -DestinationPath 'C:\ssg' -Force
+
+          Write-Host "Running OpenSCAP CIS L1 Member Server evaluation..."
           & 'C:\Program Files\OpenSCAP\oscap.exe' xccdf eval `
             --profile xccdf_org.ssgproject.content_profile_cis_level1_memberserver `
             --report 'C:\windows-cis-report.html' `
             'C:\ssg\scap-security-guide-0.1.74\ssg-windows_server_2022-ds.xml'
-          PSEOF
-        
-      - name: Run Windows OpenSCAP & Download Report
-        if: ${{ matrix.os == 'windows' }}
-        run: |
-          # Copy the script to the Windows VM
-          scp -o StrictHostKeyChecking=no -i ~/.ssh/scanner_key \
-            /tmp/windows-scan.ps1 \
-            sysadmin@${{ env.VM_IP }}:"C:/windows-scan.ps1"
 
-          # Execute it remotely
-          ssh -o StrictHostKeyChecking=no -i ~/.ssh/scanner_key \
-            sysadmin@${{ env.VM_IP }} \
-            "powershell -ExecutionPolicy Bypass -File C:\\windows-scan.ps1"
-            
+          Write-Host "Scan complete."
+          PSEOF
+
+      - name: Run Full Windows OpenSCAP & Download Report
+        if: ${{ matrix.os == 'windows' && vars.WINDOWS_RUN_FULL_SCAN == 'true' }}
+        run: |
           scp -o StrictHostKeyChecking=no -i ~/.ssh/scanner_key \
-            sysadmin@${{ env.VM_IP }}:"C:/windows-cis-report.html" \
+            /tmp/windows-full-scan.ps1 \
+            "sysadmin@${{ env.VM_IP }}:C:/windows-full-scan.ps1"
+
+          ssh -o StrictHostKeyChecking=no -i ~/.ssh/scanner_key \
+              sysadmin@${{ env.VM_IP }} \
+              "powershell -ExecutionPolicy Bypass -File C:\\windows-full-scan.ps1"
+
+          scp -o StrictHostKeyChecking=no -i ~/.ssh/scanner_key \
+            "sysadmin@${{ env.VM_IP }}:C:/windows-cis-report.html" \
             ./windows-cis-report.html
-          
-      # --- TEARDOWN ---
+
+      # ──────────────────────────────────────────────────────────────────────
+      # TEARDOWN
+      # ──────────────────────────────────────────────────────────────────────
+
       - name: Destroy Ephemeral VM
         if: ${{ always() && env.VM_IP != '' }}
         run: |
-          az vm delete --resource-group ${{ env.AZURE_RG }} --name scan-${{ matrix.os }}-vm --yes
+          az vm delete \
+            --resource-group ${{ env.AZURE_RG }} \
+            --name scan-${{ matrix.os }}-vm \
+            --yes
+
+          # Clean up any orphaned public IPs left behind
           az network public-ip list \
             --resource-group ${{ env.AZURE_RG }} \
             --query "[?ipConfiguration==null].[name]" -o tsv \
             | xargs -I {} az network public-ip delete \
-              --resource-group ${{ env.AZURE_RG }} --name {} || true
+                --resource-group ${{ env.AZURE_RG }} --name {} || true
 
       - name: Upload Report Artifact
         if: always()
@@ -309,16 +445,16 @@ jobs:
           name: ${{ matrix.os }}-report
           path: ./*-cis-report.html
 
-  # ==========================================
+  # ============================================================
   # STAGE 3: PUBLISH (Tag & Release)
-  # ==========================================
+  # ============================================================
   release:
     name: Publish DevSecOps Release
     needs: [prepare, matrix-factory]
     runs-on: ubuntu-latest
-    # Run unless the whole pipeline was cancelled.
-    # fail-fast: false means matrix-factory 'completes' even with leg failures,
-    # so we guard here to avoid tagging a broken build.
+    # Guard: don't publish a release if any leg failed.
+    # fail-fast: false means matrix-factory 'completes' even with leg
+    # failures, so we check explicitly here to avoid tagging a broken build.
     if: ${{ !cancelled() && !failure() }}
     steps:
       - name: Download All Reports
@@ -327,35 +463,54 @@ jobs:
           path: ./reports
           merge-multiple: true
 
-      # --- VERSIONED RELEASE (normal build run) ---
+      # ── Versioned release (normal build run) ────────────────────────────
       - name: Push Official Git Tag
-        uses: mathieudutour/github-tag-action@v6.2
         if: ${{ inputs.scan_only != true }}
+        uses: mathieudutour/github-tag-action@v6.2
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          custom_tag: v${{ needs.prepare.outputs.new_version }}  # v-prefix matches release tag below
+          custom_tag: v${{ needs.prepare.outputs.new_version }}
 
       - name: Publish Golden Image Release
-        uses: softprops/action-gh-release@v2
         if: ${{ inputs.scan_only != true }}
+        uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ needs.prepare.outputs.new_version }}
           name: "Golden Image Release v${{ needs.prepare.outputs.new_version }}"
           body: |
-            Automated OpenSCAP CIS Level 1 Compliance Reports.
-            **Azure Image Version:** `${{ needs.prepare.outputs.new_version }}`
+            ## Golden Image Factory — v${{ needs.prepare.outputs.new_version }}
+
+            Automated CIS Level 1 Compliance Reports for all built images.
+
+            | Image | Benchmark | Profile |
+            |-------|-----------|---------|
+            | Ubuntu 22.04 | CIS Ubuntu Linux 22.04 LTS | Level 1 Server |
+            | RHEL 9 | CIS Red Hat Enterprise Linux 9 | Level 1 Server |
+            | Windows Server 2022 | CIS Microsoft Windows Server 2022 | Level 1 Member Server |
+
+            **Azure Compute Gallery image version:** `${{ needs.prepare.outputs.new_version }}`
+
+            > The Windows compliance report is generated at **build time** (pre-sysprep)
+            > by `run-compliance-scan.ps1` and baked into the image at `C:\CIS-Reports\`.
+            > This means the report reflects the exact hardened state of the image,
+            > not a post-deployment scan that may drift.
           fail_on_unmatched_files: false
           files: ./reports/*-cis-report.html
 
-      # --- AD-HOC SCAN RELEASE (scan_only run) ---
+      # ── Ad-hoc scan release (scan_only run) ──────────────────────────────
       - name: Publish Ad-Hoc Scan Report
-        uses: softprops/action-gh-release@v2
         if: ${{ inputs.scan_only == true }}
+        uses: softprops/action-gh-release@v2
         with:
           tag_name: scan-report-${{ github.run_number }}
           name: "Ad-Hoc Compliance Scan #${{ github.run_number }}"
           body: |
-            Manual OpenSCAP CIS Level 1 evaluation against existing Gallery Images.
-            *(Note: No new image versions were baked during this run).*
+            Manual CIS Level 1 compliance evaluation against existing Gallery Images.
+            *(No new image versions were built during this run.)*
+
+            > **Windows note:** The report was retrieved from the pre-baked
+            > `C:\CIS-Reports\` directory inside the deployed VM.
+            > To run a live full OpenSCAP scan instead, set the repository
+            > variable `WINDOWS_RUN_FULL_SCAN=true` before triggering this workflow.
           fail_on_unmatched_files: false
           files: ./reports/*-cis-report.html
