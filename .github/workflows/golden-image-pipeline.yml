@@ -48,7 +48,7 @@ jobs:
     name: Prepare Pipeline & SemVer
     runs-on: ubuntu-latest
     outputs:
-      new_version:   ${{ steps.version.outputs.clean_version }}
+      new_version:   ${{ steps.version.outputs.clean_version || '1.0.0' }}
       matrix_config: ${{ steps.set-matrix.outputs.matrix }}
     steps:
       - name: Checkout Code
@@ -103,6 +103,7 @@ jobs:
       AZURE_GALLERY:  ${{ vars.AZURE_GALLERY }}
       AZURE_LOCATION: ${{ inputs.azure_region || vars.AZURE_LOCATION }}
       VM_SIZE:        ${{ vars.VM_SIZE }}
+      WINDOWS_ADMIN_PASS: ${{ secrets.WINDOWS_LOCAL_ADMIN_PASSWORD }}
 
       # ── Packer variables shared across all OS legs ──────────────────────
       PKR_VAR_resource_group:        ${{ vars.AZURE_RG }}
@@ -224,6 +225,7 @@ jobs:
               --name            scan-${{ matrix.os }}-vm \
               --image           "$IMAGE_ID" \
               --admin-username  sysadmin \
+              --admin-password  "${{ env.WINDOWS_ADMIN_PASS }}" \
               --ssh-key-values  ~/.ssh/scanner_key.pub \
               --location        ${{ env.AZURE_LOCATION }} \
               --size            ${{ env.VM_SIZE }} \
