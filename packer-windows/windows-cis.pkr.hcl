@@ -152,8 +152,7 @@ locals {
     "-e", "ansible_winrm_transport=basic",
     "-e", "ansible_winrm_operation_timeout_sec=120",
     "-e", "ansible_winrm_read_timeout_sec=150",
-    "-e", "ansible_user=packer",
-    "-e", "ansible_password=${build.Password}",
+    "-e", "ansible_user=packer"
   ]
 }
 
@@ -236,7 +235,8 @@ build {
     user            = "packer"
     use_proxy       = false
     extra_arguments = concat(local.ansible_base_args, [
-      "--skip-tags", "winrm_connectivity",
+      "-e", "ansible_password=${build.Password}", # <--- THE FIX: Moved it here!
+      "--skip-tags", "winrm_connectivity"
     ])
   }
 
