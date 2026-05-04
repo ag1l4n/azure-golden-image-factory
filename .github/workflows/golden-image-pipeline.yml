@@ -151,7 +151,7 @@ jobs:
           pip install \
             ansible~=9.0 \
             pywinrm \
-            python-xmltodict \
+            xmltodict \
             passlib \
             jmespath
 
