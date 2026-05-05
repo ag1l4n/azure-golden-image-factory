@@ -251,19 +251,19 @@ build {
   # These two controls cannot run through Ansible because they cut the session.
   # Done last, via PowerShell, with no active WinRM dependency.
   provisioner "powershell" {
-    script = "${path.root}/../scripts/apply-winrm-cis-controls.ps1"
+    script = "${path.root}/../packer-windows/scripts/apply-winrm-cis-controls.ps1"
   }
 
   # Step 6 — Bake a compliance report into the image.
   # The report lands at C:\CIS-Reports\ and is copied out during the
   # pipeline's "Scan" phase via SCP — no OpenSCAP installation needed at scan time.
   provisioner "powershell" {
-    script = "${path.root}/../scripts/run-compliance-scan.ps1"
+    script = "${path.root}/../packer-windows/scripts/run-compliance-scan.ps1"
   }
 
   # Step 7 — Generalize. Must always be last.
   provisioner "powershell" {
-    script = "${path.root}/../scripts/sysprep.ps1"
+    script = "${path.root}/../packer-windows/scripts/sysprep.ps1"
   }
 
   post-processor "manifest" {
