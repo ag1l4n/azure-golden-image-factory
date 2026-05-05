@@ -8,6 +8,10 @@ Write-Output "Installing OpenSCAP via Chocolatey..."
 iex ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))
 choco install openscap -y --no-progress
 
+# THE FIX: Force the current PowerShell session to reload the system PATH
+Write-Output "Reloading Environment Variables..."
+$env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
+
 Write-Output "Downloading SCAP Security Guide..."
 Invoke-WebRequest -Uri 'https://github.com/ComplianceAsCode/content/releases/download/v0.1.74/scap-security-guide-0.1.74.zip' -OutFile 'C:\ssg.zip'
 Expand-Archive -Path 'C:\ssg.zip' -DestinationPath 'C:\ssg' -Force
@@ -16,7 +20,8 @@ $Timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
 $ReportPath = "C:\CIS-Reports\compliance-report-$Timestamp.html"
 
 Write-Output "Executing OpenSCAP evaluation..."
-& 'C:\Program Files\OpenSCAP\oscap.exe' xccdf eval `
+# THE FIX: Call oscap.exe natively now that the Path is refreshed
+oscap.exe xccdf eval `
   --profile xccdf_org.ssgproject.content_profile_cis_level1_memberserver `
   --report $ReportPath `
   'C:\ssg\scap-security-guide-0.1.74\ssg-windows_server_2022-ds.xml'
