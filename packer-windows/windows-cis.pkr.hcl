@@ -77,7 +77,7 @@ variable "gallery_name" {
 # Default matches the pipeline's windows_image_name_override fallback.
 variable "image_definition_name" {
   type    = string
-  default = "win-server-2022-cis-l1"
+  default = "windows-server-2022-cis"
 }
 
 # Passed by the pipeline as: -var "image_version=<semver>"
