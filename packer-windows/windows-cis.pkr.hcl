@@ -212,7 +212,7 @@ build {
   # Step 1 — Re-enforce WinRM before Ansible connects.
   # Azure images can silently reset WinRM config during first-boot scripts.
   provisioner "powershell" {
-    script = "${path.root}/../scripts/bootstrap-winrm.ps1"
+    script = "${path.root}/../packer-windows/scripts/bootstrap-winrm.ps1"
   }
 
   # Step 2 — Apply Patch Tuesday updates before hardening.
