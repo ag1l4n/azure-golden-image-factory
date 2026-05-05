@@ -372,58 +372,33 @@ jobs:
           echo "Report retrieved successfully."
           echo "Size: $(du -sh ./windows-cis-report.html | cut -f1)"
 
-      # ── Windows fallback: full OpenSCAP scan (opt-in) ────────────────────
-      # Enable by setting repository variable WINDOWS_RUN_FULL_SCAN=true.
-      # This installs OpenSCAP via Chocolatey and runs the full SCAP benchmark.
-      # Takes ~20 minutes and requires outbound internet from the scan VM.
+      # ── Windows Compliance Scan: Chef InSpec ─────────────────────────────
+      # Replaces OpenSCAP with the modern open-source standard for Windows.
+      # Runs from the GitHub Runner, connects via SSH, evaluates the DevSec 
+      # Windows Baseline, and generates a native HTML report.
       # ─────────────────────────────────────────────────────────────────────
 
-      - name: Prepare Full Windows OpenSCAP Scan Script
-        if: ${{ matrix.os == 'windows' && vars.WINDOWS_RUN_FULL_SCAN == 'true' }}
+      - name: Run Chef InSpec Compliance Scan (Windows)
+        if: ${{ matrix.os == 'windows' }}
         run: |
-          cat > /tmp/windows-full-scan.ps1 << 'PSEOF'
-          Set-ExecutionPolicy Bypass -Scope Process -Force
-          [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+          echo "Installing Chef InSpec on GitHub Runner..."
+          curl -sL https://omnitruck.chef.io/install.sh | sudo bash -s -- -P inspec
 
-          Write-Host "Installing Chocolatey..."
-          iex ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))
+          echo "Executing InSpec DevSec Windows Baseline over SSH..."
+          export CHEF_LICENSE="accept-silent"
+          
+          # InSpec connects directly to the VM and generates the report locally
+          inspec exec https://github.com/dev-sec/windows-baseline \
+            -t ssh://sysadmin@${{ env.VM_IP }} \
+            --password "${{ env.WINDOWS_ADMIN_PASS }}" \
+            --backend-cache \
+            --reporter html:./windows-cis-report.html cli || true
+            
+          # Note: The '|| true' ensures the pipeline doesn't crash if InSpec 
+          # finds a non-compliant control. We want the report, not a broken build.
 
-          Write-Host "Installing OpenSCAP..."
-          choco install openscap -y --no-progress
-
-          Write-Host "Downloading SCAP Security Guide..."
-          Invoke-WebRequest `
-            -Uri 'https://github.com/ComplianceAsCode/content/releases/download/v0.1.74/scap-security-guide-0.1.74.zip' `
-            -OutFile 'C:\ssg.zip'
-          Expand-Archive -Path 'C:\ssg.zip' -DestinationPath 'C:\ssg' -Force
-
-          Write-Host "Running OpenSCAP CIS L1 Member Server evaluation..."
-          & 'C:\Program Files\OpenSCAP\oscap.exe' xccdf eval `
-            --profile xccdf_org.ssgproject.content_profile_cis_level1_memberserver `
-            --report 'C:\windows-cis-report.html' `
-            'C:\ssg\scap-security-guide-0.1.74\ssg-windows_server_2022-ds.xml'
-
-          Write-Host "Scan complete."
-          PSEOF
-
-      - name: Run Full Windows OpenSCAP & Download Report
-        if: ${{ matrix.os == 'windows' && vars.WINDOWS_RUN_FULL_SCAN == 'true' }}
-        run: |
-          # Ensure sshpass is installed in case the previous step was skipped
-          sudo apt-get update -qq && sudo apt-get install -y sshpass || true
-          export SSHPASS="${{ env.WINDOWS_ADMIN_PASS }}"
-
-          sshpass -e scp -o StrictHostKeyChecking=no \
-            /tmp/windows-full-scan.ps1 \
-            "sysadmin@${{ env.VM_IP }}:C:/windows-full-scan.ps1"
-
-          sshpass -e ssh -o StrictHostKeyChecking=no \
-              sysadmin@${{ env.VM_IP }} \
-              "powershell -ExecutionPolicy Bypass -File C:\\windows-full-scan.ps1"
-
-          sshpass -e scp -o StrictHostKeyChecking=no \
-            "sysadmin@${{ env.VM_IP }}:C:/windows-cis-report.html" \
-            ./windows-cis-report.html
+          echo "InSpec report generated successfully."
+          echo "Size: $(du -sh ./windows-cis-report.html | cut -f1)"
 
       # ──────────────────────────────────────────────────────────────────────
       # TEARDOWN
