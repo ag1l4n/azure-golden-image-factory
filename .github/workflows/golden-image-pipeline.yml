@@ -409,15 +409,19 @@ jobs:
       - name: Run Full Windows OpenSCAP & Download Report
         if: ${{ matrix.os == 'windows' && vars.WINDOWS_RUN_FULL_SCAN == 'true' }}
         run: |
-          scp -o StrictHostKeyChecking=no -i ~/.ssh/scanner_key \
+          # Ensure sshpass is installed in case the previous step was skipped
+          sudo apt-get update -qq && sudo apt-get install -y sshpass || true
+          export SSHPASS="${{ env.WINDOWS_ADMIN_PASS }}"
+
+          sshpass -e scp -o StrictHostKeyChecking=no \
             /tmp/windows-full-scan.ps1 \
             "sysadmin@${{ env.VM_IP }}:C:/windows-full-scan.ps1"
 
-          ssh -o StrictHostKeyChecking=no -i ~/.ssh/scanner_key \
+          sshpass -e ssh -o StrictHostKeyChecking=no \
               sysadmin@${{ env.VM_IP }} \
               "powershell -ExecutionPolicy Bypass -File C:\\windows-full-scan.ps1"
 
-          scp -o StrictHostKeyChecking=no -i ~/.ssh/scanner_key \
+          sshpass -e scp -o StrictHostKeyChecking=no \
             "sysadmin@${{ env.VM_IP }}:C:/windows-cis-report.html" \
             ./windows-cis-report.html
 
