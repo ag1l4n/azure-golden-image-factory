@@ -226,7 +226,6 @@ jobs:
               --image           "$IMAGE_ID" \
               --admin-username  sysadmin \
               --admin-password  "${{ env.WINDOWS_ADMIN_PASS }}" \
-              --ssh-key-values  ~/.ssh/scanner_key.pub \
               --location        ${{ env.AZURE_LOCATION }} \
               --size            ${{ env.VM_SIZE }} \
               --nic-delete-option delete \
@@ -349,23 +348,24 @@ jobs:
       - name: Retrieve Pre-Baked CIS Report from Windows VM
         if: ${{ matrix.os == 'windows' && vars.WINDOWS_RUN_FULL_SCAN != 'true' }}
         run: |
+          echo "Installing sshpass for password-based SCP..."
+          sudo apt-get update -qq && sudo apt-get install -y sshpass
+          
+          # Safely export the password to an environment variable for sshpass to use
+          export SSHPASS="${{ env.WINDOWS_ADMIN_PASS }}"
+
           echo "Locating pre-baked CIS compliance report in C:\CIS-Reports\..."
 
-          # List available reports — the build step generates one per build run
-          ssh -o StrictHostKeyChecking=no -i ~/.ssh/scanner_key \
-              sysadmin@${{ env.VM_IP }} \
-              "powershell -Command \"Get-ChildItem 'C:\\CIS-Reports' | Format-Table Name, LastWriteTime -AutoSize\""
-
-          # Copy the most recent HTML report to the runner
-          ssh -o StrictHostKeyChecking=no -i ~/.ssh/scanner_key \
-              sysadmin@${{ env.VM_IP }} \
+          # Copy the most recent HTML report to the sysadmin user directory
+          sshpass -e ssh -o StrictHostKeyChecking=no sysadmin@${{ env.VM_IP }} \
               "powershell -Command \"\
                 \$latest = Get-ChildItem 'C:\\CIS-Reports\\*.html' \
                   | Sort-Object LastWriteTime -Descending \
                   | Select-Object -First 1; \
                 Copy-Item \$latest.FullName 'C:\\Users\\sysadmin\\windows-cis-report.html'\""
 
-          scp -o StrictHostKeyChecking=no -i ~/.ssh/scanner_key \
+          # Download the report to the GitHub Runner
+          sshpass -e scp -o StrictHostKeyChecking=no \
             "sysadmin@${{ env.VM_IP }}:C:/Users/sysadmin/windows-cis-report.html" \
             ./windows-cis-report.html
 
