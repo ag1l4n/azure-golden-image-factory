@@ -187,7 +187,7 @@ jobs:
           # (those templates don't declare it).
           PKR_VAR_image_definition_name: >-
             ${{ matrix.os == 'windows'
-             && (inputs.windows_image_name_override || 'win-server-2022-cis-l1')
+             && (inputs.windows_image_name_override || 'windows-server-2022-cis')
              || '' }}
 
       # ──────────────────────────────────────────────────────────────────────
@@ -205,7 +205,7 @@ jobs:
           elif [[ "${{ matrix.os }}" == "rhel" ]]; then
             echo "name=${{ inputs.rhel_image_name_override || 'rhel-nvme-cis' }}" >> $GITHUB_OUTPUT
           else
-            echo "name=${{ inputs.windows_image_name_override || 'win-server-2022-cis-l1' }}" >> $GITHUB_OUTPUT
+            echo "name=${{ inputs.windows_image_name_override || 'windows-server-2022-cis' }}" >> $GITHUB_OUTPUT
           fi
 
       - name: Deploy Ephemeral VM
