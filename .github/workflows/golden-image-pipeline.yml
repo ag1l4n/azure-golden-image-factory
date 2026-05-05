@@ -327,51 +327,6 @@ jobs:
             sysadmin@${{ env.VM_IP }}:/home/sysadmin/rhel-cis-report.html \
             ./rhel-cis-report.html
 
-      # ── Windows scan: pull the pre-baked report ──────────────────────────
-      #
-      # The Packer build bakes a compliance report into the image at:
-      #   C:\CIS-Reports\compliance-report-<timestamp>.html
-      #
-      # This approach replaces the previous "install OpenSCAP at scan time"
-      # strategy, which required ~15 minutes of Chocolatey + SSG downloads
-      # and frequently failed on transient network errors.
-      #
-      # The pre-baked report captures the EXACT state of the image at build
-      # time (post-hardening, pre-sysprep) — which is more accurate than
-      # a post-deployment scan that may differ due to OOBE changes.
-      #
-      # If a full CIS-CAT Pro scan is required (e.g. for formal audit evidence),
-      # set WINDOWS_RUN_FULL_SCAN=true in repository variables and the
-      # fallback block below will run it.
-      # ─────────────────────────────────────────────────────────────────────
-
-      - name: Retrieve Pre-Baked CIS Report from Windows VM
-        if: ${{ matrix.os == 'windows' && vars.WINDOWS_RUN_FULL_SCAN != 'true' }}
-        run: |
-          echo "Installing sshpass for password-based SCP..."
-          sudo apt-get update -qq && sudo apt-get install -y sshpass
-          
-          # Safely export the password to an environment variable for sshpass to use
-          export SSHPASS="${{ env.WINDOWS_ADMIN_PASS }}"
-
-          echo "Locating pre-baked CIS compliance report in C:\CIS-Reports\..."
-
-          # Copy the most recent HTML report to the sysadmin user directory
-          sshpass -e ssh -o StrictHostKeyChecking=no sysadmin@${{ env.VM_IP }} \
-              "powershell -Command \"\
-                \$latest = Get-ChildItem 'C:\\CIS-Reports\\*.html' \
-                  | Sort-Object LastWriteTime -Descending \
-                  | Select-Object -First 1; \
-                Copy-Item \$latest.FullName 'C:\\Users\\sysadmin\\windows-cis-report.html'\""
-
-          # Download the report to the GitHub Runner
-          sshpass -e scp -o StrictHostKeyChecking=no \
-            "sysadmin@${{ env.VM_IP }}:C:/Users/sysadmin/windows-cis-report.html" \
-            ./windows-cis-report.html
-
-          echo "Report retrieved successfully."
-          echo "Size: $(du -sh ./windows-cis-report.html | cut -f1)"
-
       # ── Windows Compliance Scan: Chef InSpec ─────────────────────────────
       # Replaces OpenSCAP with the modern open-source standard for Windows.
       # Runs from the GitHub Runner, connects via SSH, evaluates the DevSec 
