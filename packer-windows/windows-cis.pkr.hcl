@@ -251,8 +251,7 @@ build {
   # These two controls cannot run through Ansible because they cut the session.
   # Done last, via PowerShell, with no active WinRM dependency.
   provisioner "powershell" {
-    elevated_user     = "packer"                      # <--- ADD THIS
-    elevated_password = "${build.Password}"
+    elevated_user     = "SYSTEM"       
     script = "${path.root}/../packer-windows/scripts/apply-winrm-cis-controls.ps1"
   }
 
@@ -260,8 +259,7 @@ build {
   # The report lands at C:\CIS-Reports\ and is copied out during the
   # pipeline's "Scan" phase via SCP — no OpenSCAP installation needed at scan time.
   provisioner "powershell" {
-    elevated_user     = "packer"                      # <--- ADD THIS
-    elevated_password = "${build.Password}"
+    elevated_user     = "SYSTEM"                     
     script = "${path.root}/../packer-windows/scripts/run-compliance-scan.ps1"
   }
 
