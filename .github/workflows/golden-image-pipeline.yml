@@ -333,35 +333,24 @@ jobs:
       # Windows Baseline, and generates a native HTML report natively.
       # ─────────────────────────────────────────────────────────────────────
 
-      - name: Run Cinc Auditor & Compile MITRE HTML Summary (Windows)
+      - name: Run Cinc Auditor & Generate Multi-Format Reports (Windows)
         if: ${{ matrix.os == 'windows' }}
         run: |
           echo "Installing Cinc Auditor on GitHub Runner..."
           curl -sL https://omnitruck.cinc.sh/install.sh | sudo bash -s -- -P cinc-auditor
 
           echo "Executing DevSec Windows Baseline over SSH..."
+          
+          # Native multi-reporting: Output HTML, JSON (for Heimdall), and CLI simultaneously
           cinc-auditor exec https://github.com/dev-sec/windows-baseline \
             -t ssh://sysadmin@${{ env.VM_IP }} \
             --password "${{ env.WINDOWS_ADMIN_PASS }}" \
             --backend-cache \
-            --reporter json:./windows-cis-report.json cli || true
+            --reporter html:./windows-cis-report.html json:./windows-cis-report.json cli || true
 
-          echo "Compiling MITRE SAF HTML Executive Summary via Docker..."
-          
-          # 1. Run as root inside the container to completely bypass Node.js crashes and write blocks
-          docker run --rm --user root -v $(pwd):/share mitre/saf view summary \
-            -i /share/windows-cis-report.json \
-            -o /share/windows-cis-report.html
-
-          # 2. Stamp the summary directly onto the GitHub Actions run page
-          docker run --rm --user root -v $(pwd):/share mitre/saf view summary \
-            -i /share/windows-cis-report.json >> $GITHUB_STEP_SUMMARY
-
-          # 3. Reclaim ownership of the files so the GitHub runner can upload them as artifacts
-          sudo chown $USER:$USER ./windows-cis-report.*
-
-          echo "Standalone HTML summary generated successfully."
-          echo "Size: $(du -sh ./windows-cis-report.html | cut -f1)"
+          echo "Reports generated successfully."
+          echo "HTML Size: $(du -sh ./windows-cis-report.html | cut -f1)"
+          echo "JSON Size: $(du -sh ./windows-cis-report.json | cut -f1)"
 
       # ──────────────────────────────────────────────────────────────────────
       # TEARDOWN
