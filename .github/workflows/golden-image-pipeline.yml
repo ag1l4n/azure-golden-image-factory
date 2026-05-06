@@ -333,34 +333,22 @@ jobs:
       # Windows Baseline, and generates a native HTML report natively.
       # ─────────────────────────────────────────────────────────────────────
 
-      - name: Run Cinc Auditor & Generate Heimdall Report (Windows)
+      - name: Run Cinc Auditor & Generate Reports (Windows)
         if: ${{ matrix.os == 'windows' }}
         run: |
-          echo "Installing Cinc Auditor and MITRE SAF on GitHub Runner..."
+          echo "Installing Cinc Auditor on GitHub Runner..."
           curl -sL https://omnitruck.cinc.sh/install.sh | sudo bash -s -- -P cinc-auditor
-          
-          # Install Node.js and MITRE Security Automation Framework (SAF)
-          sudo apt-get update -qq && sudo apt-get install -y nodejs npm
-          sudo npm install -g @mitre/saf
 
           echo "Executing DevSec Windows Baseline over SSH..."
           
-          # Output the results as raw JSON instead of static HTML
+          # Native multi-reporting: Output HTML, JSON (for Heimdall), and CLI simultaneously
           cinc-auditor exec https://github.com/dev-sec/windows-baseline \
             -t ssh://sysadmin@${{ env.VM_IP }} \
             --password "${{ env.WINDOWS_ADMIN_PASS }}" \
             --backend-cache \
-            --reporter json:./windows-inspec-results.json cli || true
+            --reporter html:./windows-cis-report.html json:./windows-cis-report.json cli || true
 
-          echo "Compiling Interactive Heimdall Dashboard..."
-          
-          # THE FIX: Use the new MITRE SAF convert syntax
-          saf convert hdf2html \
-            -i ./windows-inspec-results.json \
-            -o ./windows-cis-report.html
-
-          echo "Heimdall report generated successfully."
-          echo "Size: $(du -sh ./windows-cis-report.html | cut -f1)"
+          echo "Reports generated successfully."
 
       # ──────────────────────────────────────────────────────────────────────
       # TEARDOWN
@@ -386,7 +374,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.os }}-report
-          path: ./*-cis-report.html
+          path: ./*-cis-report.*
 
   # ============================================================
   # STAGE 3: PUBLISH (Tag & Release)
@@ -438,7 +426,7 @@ jobs:
             > This means the report reflects the exact hardened state of the image,
             > not a post-deployment scan that may drift.
           fail_on_unmatched_files: false
-          files: ./reports/*-cis-report.html
+          files: ./reports/*-cis-report.*
 
       # ── Ad-hoc scan release (scan_only run) ──────────────────────────────
       - name: Publish Ad-Hoc Scan Report
