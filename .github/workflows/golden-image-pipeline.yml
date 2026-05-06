@@ -353,8 +353,9 @@ jobs:
             --reporter json:./windows-inspec-results.json cli || true
 
           echo "Compiling Interactive Heimdall Dashboard..."
-          # Convert the JSON into a standalone interactive HTML dashboard
-          saf generate heimdall \
+          
+          # THE FIX: Use the new MITRE SAF convert syntax
+          saf convert hdf2html \
             -i ./windows-inspec-results.json \
             -o ./windows-cis-report.html
 
