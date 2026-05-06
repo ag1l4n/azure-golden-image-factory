@@ -333,30 +333,28 @@ jobs:
       # Windows Baseline, and generates a native HTML report natively.
       # ─────────────────────────────────────────────────────────────────────
 
-      - name: Run Cinc Auditor & Compile Heimdall HTML (Windows)
+      - name: Run Cinc Auditor & Compile MITRE HTML Summary (Windows)
         if: ${{ matrix.os == 'windows' }}
         run: |
           echo "Installing Cinc Auditor on GitHub Runner..."
           curl -sL https://omnitruck.cinc.sh/install.sh | sudo bash -s -- -P cinc-auditor
 
           echo "Executing DevSec Windows Baseline over SSH..."
-          
-          # 1. Output the raw Heimdall Data Format (JSON)
           cinc-auditor exec https://github.com/dev-sec/windows-baseline \
             -t ssh://sysadmin@${{ env.VM_IP }} \
             --password "${{ env.WINDOWS_ADMIN_PASS }}" \
             --backend-cache \
             --reporter json:./windows-cis-report.json cli || true
 
-          echo "Compiling Standalone Heimdall HTML Dashboard via Docker..."
+          echo "Compiling MITRE SAF HTML Executive Summary via Docker..."
           
-          # 2. Use the official MITRE Docker image to bypass all NPM bugs!
-          # We mount the current directory to /share inside the container.
-          docker run --rm -v $(pwd):/share mitresaf/saf convert hdf2html \
+          # Fix 1: Use the correct mitre/saf image
+          # Fix 2: Use the modern 'view summary' command to output an HTML report
+          docker run --rm -v $(pwd):/share mitre/saf view summary \
             -i /share/windows-cis-report.json \
             -o /share/windows-cis-report.html
 
-          echo "Standalone HTML dashboard generated successfully."
+          echo "Standalone HTML summary generated successfully."
           echo "Size: $(du -sh ./windows-cis-report.html | cut -f1)"
 
       # ──────────────────────────────────────────────────────────────────────
