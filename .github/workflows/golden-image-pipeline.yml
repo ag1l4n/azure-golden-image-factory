@@ -348,14 +348,17 @@ jobs:
 
           echo "Compiling MITRE SAF HTML Executive Summary via Docker..."
           
-          # Fix: Force Docker to run as the GitHub Runner user to prevent EACCES write errors
-          docker run --rm --user $(id -u):$(id -g) -v $(pwd):/share mitre/saf view summary \
+          # 1. Run as root inside the container to completely bypass Node.js crashes and write blocks
+          docker run --rm --user root -v $(pwd):/share mitre/saf view summary \
             -i /share/windows-cis-report.json \
             -o /share/windows-cis-report.html
 
-          # Stamp the summary directly onto the GitHub Actions run page
-          docker run --rm --user $(id -u):$(id -g) -v $(pwd):/share mitre/saf view summary \
+          # 2. Stamp the summary directly onto the GitHub Actions run page
+          docker run --rm --user root -v $(pwd):/share mitre/saf view summary \
             -i /share/windows-cis-report.json >> $GITHUB_STEP_SUMMARY
+
+          # 3. Reclaim ownership of the files so the GitHub runner can upload them as artifacts
+          sudo chown $USER:$USER ./windows-cis-report.*
 
           echo "Standalone HTML summary generated successfully."
           echo "Size: $(du -sh ./windows-cis-report.html | cut -f1)"
