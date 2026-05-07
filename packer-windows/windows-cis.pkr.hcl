@@ -256,15 +256,7 @@ build {
     script = "${path.root}/../packer-windows/scripts/apply-winrm-cis-controls.ps1"
   }
 
-  # Step 6 — Bake a compliance report into the image.
-  # The report lands at C:\CIS-Reports\ and is copied out during the
-  # pipeline's "Scan" phase via SCP — no OpenSCAP installation needed at scan time.
-  provisioner "powershell" {
-    elevated_user     = "SYSTEM"                     
-    script = "${path.root}/../packer-windows/scripts/run-compliance-scan.ps1"
-  }
-
-  # Step 7 — Generalize. Must always be last.
+  # Step 6 — Generalize. Must always be last.
   provisioner "powershell" {
     script = "${path.root}/../packer-windows/scripts/sysprep.ps1"
   }
