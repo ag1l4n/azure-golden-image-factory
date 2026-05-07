@@ -236,6 +236,7 @@ build {
     extra_arguments = concat(local.ansible_base_args, [
       "-e", "ansible_password=${build.Password}", # <--- THE FIX: Moved it here!
       "--skip-tags", "winrm_connectivity"
+      "-e", "@${path.root}/../ansible/cis-overrides.yml"
     ])
   }
 
