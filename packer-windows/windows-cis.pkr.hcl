@@ -1,166 +1,281 @@
-# ./packer-windows/windows-cis.pkr.hcl
+# =============================================================================
+# azure-golden-image-factory / packer-windows / windows-server-2022.pkr.hcl
+#
+# Builds a CIS Level 1 hardened Windows Server 2022 golden image and publishes
+# it to the Azure Compute Gallery shared with Ubuntu and RHEL builds.
+#
+# Variable names are intentionally aligned with the PKR_VAR_* environment
+# variables set by the Golden Image Factory pipeline (golden-image-pipeline.yml)
+# so no extra mapping is needed in CI.
+#
+# Provisioner order — do not reorder:
+#   1. bootstrap-winrm.ps1           Keep WinRM alive for Ansible
+#   2. windows-update                Patch Tuesday updates before hardening
+#   3. ansible (--skip winrm_conn)   CIS L1 main pass; WinRM-killers skipped
+#   4. windows-restart               Flush GPO/registry writes to disk
+#   5. apply-winrm-cis-controls.ps1  Apply WinRM-disabling controls via registry
+#   6. run-compliance-scan.ps1       Bake compliance report into image
+#   7. sysprep.ps1                   Generalize — must be last
+# =============================================================================
 
 packer {
+  required_version = ">= 1.9.0"
+
   required_plugins {
     azure = {
       source  = "github.com/hashicorp/azure"
-      version = "~> 2"
+      version = "~> 2.0"
+    }
+    ansible = {
+      source  = "github.com/hashicorp/ansible"
+      version = "~> 1.1"
+    }
+    windows-update = {
+      source  = "github.com/rgl/windows-update"
+      version = "~> 0.14"
     }
   }
 }
 
-source "azure-arm" "windows" {
-  subscription_id = var.subscription_id
-  client_id       = var.client_id
-  client_secret   = var.client_secret
+# =============================================================================
+# Variables — names match PKR_VAR_* set in golden-image-pipeline.yml env block
+# =============================================================================
 
-  image_publisher = "MicrosoftWindowsServer"
-  image_offer     = "WindowsServer"
-  image_sku       = "2022-datacenter-g2"
+variable "subscription_id" {
+  type      = string
+  sensitive = true
+}
 
-  build_resource_group_name = var.resource_group
-  vm_size                   = var.vm_size
+variable "tenant_id" {
+  type        = string
+  sensitive   = true
+  description = "Azure Tenant ID. Set PKR_VAR_tenant_id or AZURE_TENANT_ID in CI."
+}
 
-  communicator   = "winrm"
-  winrm_username = "packer"
-  # No winrm_password — Packer uses KeyVault cert auth automatically
-  winrm_use_ssl  = true
-  winrm_insecure = true
-  winrm_timeout  = "15m"
+variable "client_id" {
+  type      = string
+  sensitive = true
+}
 
-  os_type = "Windows"
+variable "client_secret" {
+  type      = string
+  sensitive = true
+}
 
-  shared_image_gallery_destination {
-    resource_group      = var.resource_group
-    gallery_name        = var.gallery_name
-    image_name          = "windows-server-2022-cis"
-    image_version       = var.image_version
-    replication_regions = [var.location]
+# Matches PKR_VAR_resource_group set in the pipeline env block.
+# Used for both the ephemeral build VM and the Compute Gallery — same RG as
+# Ubuntu/RHEL builds for consistency.
+variable "resource_group" {
+  type = string
+}
+
+variable "gallery_name" {
+  type = string
+}
+
+# The image definition name inside the gallery.
+# Default matches the pipeline's windows_image_name_override fallback.
+variable "image_definition_name" {
+  type    = string
+  default = "windows-server-2022-cis"
+}
+
+# Passed by the pipeline as: -var "image_version=<semver>"
+variable "image_version" {
+  type    = string
+  default = "1.0.0"
+}
+
+variable "replication_regions" {
+  type    = list(string)
+  default = ["southeastasia"]
+}
+
+# Matches PKR_VAR_vm_size set in the pipeline env block.
+# Use D4s_v5 (4 vCPU / 16 GB) — CIS role applies ~300 registry writes;
+# a larger VM materially reduces build time vs D2s.
+variable "vm_size" {
+  type    = string
+  default = "Standard_D4s_v5"
+}
+
+variable "os_disk_size_gb" {
+  type    = number
+  default = 128
+}
+
+# Matches PKR_VAR_location set in the pipeline env block.
+variable "location" {
+  type    = string
+  default = "southeastasia"
+}
+
+# These two are declared so Packer doesn't warn about unknown PKR_VAR_* values
+# injected by the shared pipeline env block. They are not used for Windows builds
+# because azure-arm manages its own WinRM credentials dynamically.
+variable "local_admin_username" {
+  type    = string
+  default = "sysadmin"
+}
+variable "local_admin_password" {
+  type      = string
+  sensitive = true
+  default   = ""
+}
+
+variable "tags" {
+  type = map(string)
+  default = {
+    image_type  = "golden"
+    os          = "windows-server-2022"
+    cis_level   = "l1"
+    build_tool  = "packer"
+    managed_by  = "golden-image-factory"
   }
 }
 
+# =============================================================================
+# Locals
+# =============================================================================
+
+locals {
+  timestamp  = formatdate("YYYYMMDD-hhmmss", timestamp())
+  image_name = "win2022-cis-l1-${local.timestamp}"
+
+  # Ansible extra-args injected into every ansible provisioner call.
+  # build.Password is the dynamic WinRM password generated by azure-arm —
+  # passing it explicitly here is the fix for the "credentials rejected" error.
+  ansible_base_args = [
+    "-e", "ansible_connection=winrm",
+    "-e", "ansible_winrm_scheme=https",
+    "-e", "ansible_winrm_server_cert_validation=ignore",
+    "-e", "ansible_winrm_transport=basic",
+    "-e", "ansible_winrm_operation_timeout_sec=120",
+    "-e", "ansible_winrm_read_timeout_sec=150",
+    "-e", "ansible_user=packer"
+  ]
+}
+
+# =============================================================================
+# Source
+# =============================================================================
+
+source "azure-arm" "win2022_cis_l1" {
+  # Auth
+  subscription_id = var.subscription_id
+  tenant_id       = var.tenant_id
+  client_id       = var.client_id
+  client_secret   = var.client_secret
+
+  # Build environment — same resource group as the gallery for simplicity
+  build_resource_group_name = var.resource_group
+  vm_size                   = var.vm_size
+  os_disk_size_gb           = var.os_disk_size_gb
+
+  # Source: vanilla Windows Server 2022 Datacenter (Azure Edition)
+  os_type         = "Windows"
+  image_publisher = "MicrosoftWindowsServer"
+  image_offer     = "WindowsServer"
+  image_sku       = "2022-datacenter-azure-edition"
+  image_version   = "latest"
+
+  # Communicator: WinRM over HTTPS (azure-arm bootstraps the cert automatically)
+  communicator   = "winrm"
+  winrm_use_ssl  = true
+  winrm_insecure = true
+  winrm_timeout  = "30m"
+  winrm_username = "packer"
+
+  # Output: managed image + Compute Gallery version
+  managed_image_name                = local.image_name
+  managed_image_resource_group_name = var.resource_group
+
+  shared_image_gallery_destination {
+    gallery_name        = var.gallery_name
+    image_name          = var.image_definition_name
+    image_version       = var.image_version
+    resource_group      = var.resource_group
+    replication_regions = var.replication_regions
+  }
+
+  azure_tags = var.tags
+}
+
+# =============================================================================
+# Build
+# =============================================================================
+
 build {
-  sources = ["source.azure-arm.windows"]
+  name    = "win2022-cis-l1"
+  sources = ["source.azure-arm.win2022_cis_l1"]
 
-  # --- STEP 1: Upload scripts ---
-  provisioner "file" {
-    source      = "./scripts/cis-harden.ps1"
-    destination = "C:\\Windows\\Temp\\cis-harden.ps1"
-  }
-
-  provisioner "file" {
-    source      = "./scripts/wrapper.ps1"
-    destination = "C:\\Windows\\Temp\\wrapper.ps1"
-  }
-
-  # --- STEP 2: Run CIS hardening as SYSTEM scheduled task ---
-  # The WinRM session stays completely idle during hardening.
-  # The CIS script runs in an isolated SYSTEM process — WinRM
-  # auth is never touched by secedit or security policy changes.
+  # Step 1 — Re-enforce WinRM before Ansible connects.
+  # Azure images can silently reset WinRM config during first-boot scripts.
   provisioner "powershell" {
-    valid_exit_codes  = [0, 267014]
-    inline = [
-      # Write credentials to temp files so the SYSTEM task can read them
-      # (Scheduled tasks don't inherit the WinRM session's environment)
-      "[System.IO.File]::WriteAllText('C:\\Windows\\Temp\\u.txt', '${var.local_admin_username}')",
-      "[System.IO.File]::WriteAllText('C:\\Windows\\Temp\\p.txt', '${var.local_admin_password}')",
-
-      # Remove any stale completion/failure markers from previous runs
-      "Remove-Item 'C:\\Windows\\Temp\\done.txt'   -Force -ErrorAction SilentlyContinue",
-      "Remove-Item 'C:\\Windows\\Temp\\failed.txt'  -Force -ErrorAction SilentlyContinue",
-
-      # Register the wrapper as a SYSTEM scheduled task
-      "$a = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument '-ExecutionPolicy Bypass -NonInteractive -WindowStyle Hidden -File C:\\Windows\\Temp\\wrapper.ps1'",
-      "$t = New-ScheduledTaskTrigger -Once -At (Get-Date).AddSeconds(5)",
-      "$p = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -RunLevel Highest",
-      "$s = New-ScheduledTaskSettingsSet -ExecutionTimeLimit (New-TimeSpan -Minutes 60) -MultipleInstances IgnoreNew",
-      "Register-ScheduledTask -TaskName 'CIS-Harden' -Action $a -Trigger $t -Principal $p -Settings $s -Force | Out-Null",
-
-      # Trigger immediately
-      "Start-ScheduledTask -TaskName 'CIS-Harden'",
-      "Write-Host 'CIS hardening task started. Polling for completion...'",
-
-      # Poll every 20s for up to 30 minutes (90 attempts)
-      "$i = 0",
-      "do {",
-      "    Start-Sleep -Seconds 20",
-      "    $i++",
-      "    $state = (Get-ScheduledTask -TaskName 'CIS-Harden' -ErrorAction SilentlyContinue).State",
-      "    Write-Host \"[$($i * 20)s] Task state: $state\"",
-      "    if (Test-Path 'C:\\Windows\\Temp\\failed.txt') {",
-      "        $msg = Get-Content 'C:\\Windows\\Temp\\failed.txt' -Raw",
-      "        Write-Host \"CIS hardening reported failure: $msg\"",
-      "        break",
-      "    }",
-      "} until ((Test-Path 'C:\\Windows\\Temp\\done.txt') -or $i -ge 90)",
-
-      # Report outcome
-      "if (Test-Path 'C:\\Windows\\Temp\\done.txt') {",
-      "    Write-Host 'CIS hardening completed successfully.'",
-      "} else {",
-      "    Write-Host 'WARNING: CIS hardening did not complete within 30 minutes.'",
-      "}",
-
-      # Cleanup
-      "Unregister-ScheduledTask -TaskName 'CIS-Harden' -Confirm:$false -ErrorAction SilentlyContinue",
-      "Remove-Item 'C:\\Windows\\Temp\\u.txt'      -Force -ErrorAction SilentlyContinue",
-      "Remove-Item 'C:\\Windows\\Temp\\p.txt'      -Force -ErrorAction SilentlyContinue",
-      "Remove-Item 'C:\\Windows\\Temp\\done.txt'   -Force -ErrorAction SilentlyContinue",
-      "Remove-Item 'C:\\Windows\\Temp\\failed.txt'  -Force -ErrorAction SilentlyContinue"
-    ]
+    script = "${path.root}/../packer-windows/scripts/bootstrap-winrm.ps1"
   }
 
-  # --- STEP 3: Restart to apply hardening ---
+  # Step 2 — Apply Patch Tuesday updates before hardening.
+  # CIS scan results are meaningless against an unpatched baseline.
+  provisioner "windows-update" {
+    search_criteria = "IsInstalled=0"
+    filters = [
+      "exclude:$_.Title -like '*Preview*'",
+      "include:$true",
+    ]
+    restart_timeout = "120m"
+  }
+
+  # Step 3 — CIS L1 main hardening pass.
+  # --skip-tags winrm_connectivity defers the two controls that would kill
+  # the Ansible WinRM connection (18.9.102.2.2 and 18.9.103.1).
+  provisioner "ansible" {
+    playbook_file   = "${path.root}/../ansible/windows-cis-l1.yml"
+    user            = "packer"
+    use_proxy       = false
+    extra_arguments = concat(local.ansible_base_args, [
+      "-e", "ansible_password=${build.Password}", # <--- THE FIX: Moved it here!
+      "--skip-tags", "winrm_connectivity"
+    ])
+  }
+
+  # Step 4 — Restart after CIS hardening.
+  # Without this restart, registry/GPO writes from the CIS role are not
+  # fully committed — the compliance scan will report false failures.
   provisioner "windows-restart" {
-    restart_timeout       = "20m"
-    pause_before          = "30s"
+    restart_timeout       = "15m"
     restart_check_command = "powershell -command \"& {Write-Output 'restarted'}\""
   }
 
-  # --- STEP 4: Enable OpenSSH for scan phase ---
+  # Step 5 — Apply WinRM-disabling CIS controls via direct registry writes.
+  # These two controls cannot run through Ansible because they cut the session.
+  # Done last, via PowerShell, with no active WinRM dependency.
   provisioner "powershell" {
-    inline = [
-      "Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0 -ErrorAction SilentlyContinue",
-      "Start-Service sshd",
-      "Set-Service -Name sshd -StartupType Automatic",
-      "New-NetFirewallRule -Name 'OpenSSH-Server-In-TCP' -DisplayName 'OpenSSH Server' -Enabled True -Direction Inbound -Protocol TCP -Action Allow -LocalPort 22 -ErrorAction SilentlyContinue",
-
-      # Enable password auth in sshd_config for scan phase
-      "$cfg = 'C:\\ProgramData\\ssh\\sshd_config'",
-      "if (Test-Path $cfg) {",
-      "    $c = Get-Content $cfg",
-      "    $c = $c -replace '#PasswordAuthentication yes','PasswordAuthentication yes'",
-      "    $c = $c -replace 'PasswordAuthentication no','PasswordAuthentication yes'",
-      "    $c | Set-Content $cfg",
-      "}",
-      "Restart-Service sshd -Force"
-    ]
+    elevated_user     = "SYSTEM"       
+    script = "${path.root}/../packer-windows/scripts/apply-winrm-cis-controls.ps1"
   }
 
-  # --- STEP 5: Register first-boot task to re-enable OpenSSH after Sysprep ---
-  # Sysprep resets service states — this task re-enables SSH on first boot
-  # of any VM provisioned from the golden image
+  # Step 6 — Bake a compliance report into the image.
+  # The report lands at C:\CIS-Reports\ and is copied out during the
+  # pipeline's "Scan" phase via SCP — no OpenSCAP installation needed at scan time.
   provisioner "powershell" {
-    inline = [
-      "$a = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument '-ExecutionPolicy Bypass -Command \"Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0; Start-Service sshd; Set-Service -Name sshd -StartupType Automatic; Unregister-ScheduledTask -TaskName EnableOpenSSH -Confirm:$false\"'",
-      "$t = New-ScheduledTaskTrigger -AtStartup",
-      "$p = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -RunLevel Highest",
-      "Register-ScheduledTask -TaskName 'EnableOpenSSH' -Action $a -Trigger $t -Principal $p -Force | Out-Null",
-      "Write-Host 'OpenSSH first-boot task registered.'"
-    ]
+    elevated_user     = "SYSTEM"                     
+    script = "${path.root}/../packer-windows/scripts/run-compliance-scan.ps1"
   }
 
-  # --- STEP 6: Sysprep ---
-  # Must be last — generalizes the image for Azure gallery distribution
+  # Step 7 — Generalize. Must always be last.
   provisioner "powershell" {
-    inline = [
-      "& $env:SystemRoot\\System32\\Sysprep\\Sysprep.exe /oobe /generalize /quiet /quit",
-      "while($true) {",
-      "    $imageState = (Get-ItemProperty 'HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Setup\\State').ImageState",
-      "    Write-Host \"Sysprep state: $imageState\"",
-      "    if ($imageState -eq 'IMAGE_STATE_GENERALIZE_RESEAL_TO_OOBE') { break }",
-      "    Start-Sleep -Seconds 10",
-      "}"
-    ]
+    script = "${path.root}/../packer-windows/scripts/sysprep.ps1"
+  }
+
+  post-processor "manifest" {
+    output     = "${path.root}/manifest.json"
+    strip_path = true
+    custom_data = {
+      image_name    = local.image_name
+      image_version = var.image_version
+      cis_level     = "L1"
+      build_date    = local.timestamp
+    }
   }
 }
