@@ -8,3 +8,28 @@
         win_2022_cis_level_2: false
         # Skip rules that break the Packer WinRM connection during build
         win_2022_cis_skip_for_packer: true
+
+  # =========================================================================
+  # CRITICAL CI FIX: Prop the door open for Packer!
+  # These tasks run immediately after the CIS role finishes to ensure 
+  # Packer doesn't get locked out during the windows-restart and sysprep steps.
+  # =========================================================================
+  post_tasks:
+    - name: "CI FIX: Re-enable remote UAC tokens for Packer"
+      win_regedit:
+        path: HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System
+        name: LocalAccountTokenFilterPolicy
+        data: 1
+        type: dword
+        state: present
+
+    - name: "CI FIX: Re-enable WinRM Basic Auth for Packer"
+      win_shell: Set-Item -Path WSMan:\localhost\Service\Auth\Basic -Value $true
+      
+    - name: "CI FIX: Ensure NTLM traffic is allowed for Packer"
+      win_regedit:
+        path: HKLM:\SYSTEM\CurrentControlSet\Control\Lsa\MSV1_0
+        name: RestrictReceivingNTLMTraffic
+        data: 0
+        type: dword
+        state: present
