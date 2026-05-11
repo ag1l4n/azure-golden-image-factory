@@ -25,3 +25,25 @@ win_2022_cis_rule_17_9_1: true
 win_2022_cis_rule_2_2_2: false
 # Ensure we do not block local admin network logons during Ansible
 win_2022_cis_rule_18_3_1: false
+
+# ── 5. Account Lockout Policies ───────────────────────────────────────
+# CIS requires accounts to lock out after 10 failed attempts for 15 minutes.
+win_2022_cis_rule_1_2_1: true # Account lockout duration (15+ mins)
+win_2022_cis_rule_1_2_2: true # Account lockout threshold (10 or fewer)
+win_2022_cis_rule_1_2_3: true # Reset account lockout counter (15+ mins)
+
+# ── 6. Remote Desktop Services (RDP) Hardening ────────────────────────
+# Hardens the RDP protocol, ensuring high encryption and Network Level Authentication.
+win_2022_cis_rule_18_9_78_2_1: true # Require NLA for RDP
+win_2022_cis_rule_18_9_78_3_9_1: true # Set client connection encryption level to High
+
+# ── 7. Windows Defender & Exploit Guard ───────────────────────────────
+# Azure often leaves these unconfigured by default, expecting Azure Security Center to handle it.
+win_2022_cis_rule_18_9_107_2_1_1: true # Turn on Cloud-delivered protection
+win_2022_cis_rule_18_9_107_5_1: true # Configure Microsoft Advanced Protection Service (MAPS)
+
+# ── 8. Disable Unnecessary Services ───────────────────────────────────
+# Servers do not need Xbox services or Audio services running.
+win_2022_cis_rule_18_9_105_1: true # Disable Xbox Live Auth Manager
+win_2022_cis_rule_18_9_105_2: true # Disable Xbox Live Game Save
+win_2022_cis_rule_18_9_13_1: true # Disable Windows Audio
