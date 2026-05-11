@@ -1,18 +1,15 @@
 ---
-# ── 1. Force Advanced Audit Policies ──────────────────────────────────
+# Must be win22cis_ (The role will ignore anything else)
 win22cis_setup_audit: true
 
-# ── 2. Password Policies ──────────────────────────────────────────────
 win22cis_pass_max_days: 60
 win22cis_pass_min_days: 1
 win22cis_pass_complex: true
 
-# ── 3. Account Lockout Policies ───────────────────────────────────────
 win22cis_rule_1_2_1: true
 win22cis_rule_1_2_2: true
 win22cis_rule_1_2_3: true
 
-# ── 4. LAPS Configuration (Fixes windows-179 to 184) ──────────────────
 win22cis_rule_18_2_1: true
 win22cis_rule_18_2_2: true
 win22cis_rule_18_2_3: true
@@ -20,6 +17,5 @@ win22cis_rule_18_2_4: true
 win22cis_rule_18_2_5: true
 win22cis_rule_18_2_6: true
 
-# ── 5. Packer WinRM Overrides (Do not break the build) ────────────────
-win22cis_rule_2_2_2: false  # Do not rename the local administrator
-win22cis_rule_18_3_1: false # Handled via post-script to keep WinRM alive
+win22cis_rule_2_2_2: false  
+win22cis_rule_18_3_1: false
