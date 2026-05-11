@@ -3,11 +3,6 @@
   gather_facts: true
   roles:
     - role: windows_2022_cis
-      vars:
-        win_2022_cis_level_1: true
-        win_2022_cis_level_2: false
-        # Skip rules that break the Packer WinRM connection during build
-        win_2022_cis_skip_for_packer: true
 
   # =========================================================================
   # CRITICAL CI FIX: Prop the door open for Packer!
