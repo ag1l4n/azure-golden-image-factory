@@ -4,8 +4,8 @@
   roles:
     - role: windows_2022_cis
       vars:
-        win22cis_level_1: true
-        win22cis_level_2: false
+        win_2022_cis_level_1: true
+        win_2022_cis_level_2: false
 
   # =========================================================================
   # CRITICAL CI FIX: Prop the door open for Packer!
