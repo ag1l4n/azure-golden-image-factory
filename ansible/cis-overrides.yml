@@ -1,21 +1,20 @@
 ---
-# Must be win22cis_ (The role will ignore anything else)
-win22cis_setup_audit: true
+win_2022_cis_setup_audit: true
 
-win22cis_pass_max_days: 60
-win22cis_pass_min_days: 1
-win22cis_pass_complex: true
+win_2022_cis_pass_max_days: 60
+win_2022_cis_pass_min_days: 1
+win_2022_cis_pass_complex: true
 
-win22cis_rule_1_2_1: true
-win22cis_rule_1_2_2: true
-win22cis_rule_1_2_3: true
+win_2022_cis_rule_1_2_1: true
+win_2022_cis_rule_1_2_2: true
+win_2022_cis_rule_1_2_3: true
 
-win22cis_rule_18_2_1: true
-win22cis_rule_18_2_2: true
-win22cis_rule_18_2_3: true
-win22cis_rule_18_2_4: true
-win22cis_rule_18_2_5: true
-win22cis_rule_18_2_6: true
+win_2022_cis_rule_18_2_1: true
+win_2022_cis_rule_18_2_2: true
+win_2022_cis_rule_18_2_3: true
+win_2022_cis_rule_18_2_4: true
+win_2022_cis_rule_18_2_5: true
+win_2022_cis_rule_18_2_6: true
 
-win22cis_rule_2_2_2: false  
-win22cis_rule_18_3_1: false
+win_2022_cis_rule_2_2_2: false  
+win_2022_cis_rule_18_3_1: false
