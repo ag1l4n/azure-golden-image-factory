@@ -1,49 +1,45 @@
-# ansible/cis-overrides.yml
 ---
-# ── 1. Password Policies (Fixes windows-002) ──────────────────────────
-# Azure defaults to 365 days or never expires. CIS requires 60.
-win_2022_cis_pass_max_days: 60
+# ── 1. Core Role Toggles ──────────────────────────────────────────────
+# The official ansible-lockdown prefix for Server 2022 is 'win22cis_'
+win22cis_level_1: true
+win22cis_level_2: false
 
-# ── 2. Force LAPS Registry Policies (Fixes windows-179 to 184) ────────
-# Satisfies the CIS requirements for LAPS configuration.
-win_2022_cis_rule_18_2_1: true
-win_2022_cis_rule_18_2_2: true
-win_2022_cis_rule_18_2_3: true
-win_2022_cis_rule_18_2_4: true
-win_2022_cis_rule_18_2_5: true
-win_2022_cis_rule_18_2_6: true
+# ── 2. Force Advanced Audit Policies ──────────────────────────────────
+# By default, the role skips audit policies unless explicitly told to configure them.
+# This single variable will fix dozens of audit failures in Heimdall!
+win22cis_setup_audit: true
 
-# ── 3. Advanced Audit Policies (Fixes windows-146 to 174) ─────────────
-# Azure sometimes suppresses these to save Log Analytics workspace costs.
-# Forcing these to true enables strict security auditing.
-win_2022_cis_rule_17_1_1: true
-win_2022_cis_rule_17_2_1: true
-win_2022_cis_rule_17_9_1: true
+# ── 3. Password Policies ──────────────────────────────────────────────
+win22cis_pass_max_days: 60
+win22cis_pass_min_days: 1
+win22cis_pass_complex: true
 
-# ── 4. DO NOT BREAK PACKER / AZURE ────────────────────────────────────
-# Ensure we do not rename the built-in admin account during build
-win_2022_cis_rule_2_2_2: false
-# Ensure we do not block local admin network logons during Ansible
-win_2022_cis_rule_18_3_1: false
+# ── 4. Account Lockout Policies ───────────────────────────────────────
+win22cis_rule_1_2_1: true
+win22cis_rule_1_2_2: true
+win22cis_rule_1_2_3: true
 
-# ── 5. Account Lockout Policies ───────────────────────────────────────
-# CIS requires accounts to lock out after 10 failed attempts for 15 minutes.
-win_2022_cis_rule_1_2_1: true # Account lockout duration (15+ mins)
-win_2022_cis_rule_1_2_2: true # Account lockout threshold (10 or fewer)
-win_2022_cis_rule_1_2_3: true # Reset account lockout counter (15+ mins)
+# ── 5. LAPS Configuration (Fixes windows-179 to 184) ──────────────────
+win22cis_rule_18_2_1: true
+win22cis_rule_18_2_2: true
+win22cis_rule_18_2_3: true
+win22cis_rule_18_2_4: true
+win22cis_rule_18_2_5: true
+win22cis_rule_18_2_6: true
 
-# ── 6. Remote Desktop Services (RDP) Hardening ────────────────────────
-# Hardens the RDP protocol, ensuring high encryption and Network Level Authentication.
-win_2022_cis_rule_18_9_78_2_1: true # Require NLA for RDP
-win_2022_cis_rule_18_9_78_3_9_1: true # Set client connection encryption level to High
+# ── 6. RDP Hardening ──────────────────────────────────────────────────
+win22cis_rule_18_9_78_2_1: true
+win22cis_rule_18_9_78_3_9_1: true
 
-# ── 7. Windows Defender & Exploit Guard ───────────────────────────────
-# Azure often leaves these unconfigured by default, expecting Azure Security Center to handle it.
-win_2022_cis_rule_18_9_107_2_1_1: true # Turn on Cloud-delivered protection
-win_2022_cis_rule_18_9_107_5_1: true # Configure Microsoft Advanced Protection Service (MAPS)
+# ── 7. Windows Defender ───────────────────────────────────────────────
+win22cis_rule_18_9_107_2_1_1: true
+win22cis_rule_18_9_107_5_1: true
 
 # ── 8. Disable Unnecessary Services ───────────────────────────────────
-# Servers do not need Xbox services or Audio services running.
-win_2022_cis_rule_18_9_105_1: true # Disable Xbox Live Auth Manager
-win_2022_cis_rule_18_9_105_2: true # Disable Xbox Live Game Save
-win_2022_cis_rule_18_9_13_1: true # Disable Windows Audio
+win22cis_rule_18_9_105_1: true
+win22cis_rule_18_9_105_2: true
+win22cis_rule_18_9_13_1: true
+
+# ── 9. Packer WinRM Overrides (Do not break the build) ────────────────
+win22cis_rule_2_2_2: false  # Do not rename the local administrator
+win22cis_rule_18_3_1: false # Handled via post-script to keep WinRM alive
