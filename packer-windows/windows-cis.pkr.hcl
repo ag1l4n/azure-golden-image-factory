@@ -255,14 +255,6 @@ build {
     elevated_user     = "SYSTEM"       
     script = "${path.root}/../packer-windows/scripts/apply-winrm-cis-controls.ps1"
   }
-
-  provisioner "powershell" {
-    elevated_user = "SYSTEM"
-    environment_vars = [
-      "PACKER_WIN_ADMIN_PASS=${var.local_admin_password}"
-    ]
-    script = "${path.root}/../packer-windows/scripts/cis-harden.ps1"
-  }
   
   # Step 6 — Generalize. Must always be last.
   provisioner "powershell" {
