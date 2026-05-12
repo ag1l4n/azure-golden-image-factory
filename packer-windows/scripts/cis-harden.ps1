@@ -7,6 +7,11 @@
 # Defaults below should be fine for most environments, except for the "LogonLegalNotice" options, which should be customized in every environment
 #########################################################
 #All Logs will be written to this folder
+param(
+    [Parameter(Mandatory=$false)]
+    [string]$AdminPassword = $env:PACKER_WIN_ADMIN_PASS
+)
+
 $logDir = "C:\CIS_Hardening"
 New-Item -Path $logDir -ItemType "directory" -ErrorAction SilentlyContinue
 cd $logDir
@@ -912,10 +917,12 @@ function SetWindowsDefenderLogSize {
 }
 
 function CreateUserAccount([string] $username, [securestring] $password, [bool] $isAdmin=$false) {
-    $NewLocalAdminExists = Get-LocalUser -Name $username -ErrorAction SilentlyContinue
-    if ($NewLocalAdminExists) {
-        Write-Red "Skipping creating new Administrator account"
-        Write-Red "- New Administrator account already exists: $($username)"
+    $NewLocalAdminExists = Get-LocalUser -Name $NewLocalAdmin -ErrorAction SilentlyContinue
+    if ($NewLocalAdminExists.Count -eq 0) {
+        if ([string]::IsNullOrEmpty($AdminPassword)) {
+            throw "AdminPassword parameter is required when the local admin account does not exist."
+        }
+        $NewLocalAdminPassword = ConvertTo-SecureString $AdminPassword -AsPlainText -Force
     }
     else {
         New-LocalUser -Name $username -Password $password -Description "" -AccountNeverExpires -PasswordNeverExpires
