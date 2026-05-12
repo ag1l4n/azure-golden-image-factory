@@ -251,8 +251,7 @@ build {
   # Step 5 — Apply WinRM-disabling CIS controls via direct registry writes.
   # These two controls cannot run through Ansible because they cut the session.
   # Done last, via PowerShell, with no active WinRM dependency.
-  provisioner "powershell" {
-    elevated_user     = "SYSTEM"       
+  provisioner "powershell" { 
     script = "${path.root}/../packer-windows/scripts/apply-winrm-cis-controls.ps1"
   }
   
