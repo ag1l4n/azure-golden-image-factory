@@ -37,6 +37,9 @@ reg export "HKLM\SYSTEM\CurrentControlSet\Control\Lsa" "$scriptsPath\lsa-policie
 Write-Host "Backing up WinRM policy registry keys..."
 reg export "HKLM\SOFTWARE\Policies\Microsoft\Windows\WinRM" "$scriptsPath\winrm-policies.reg" /y
 
+Write-Host "Backing up default user hive policies..."
+reg export "HKU\.DEFAULT\Software\Policies\Microsoft" "$scriptsPath\default-user-policies.reg" /y
+
 # ── Build the RestoreCIS.ps1 script that runs on first boot
 $restoreScript = "$scriptsPath\RestoreCIS.ps1"
 $psCommand = @'
@@ -60,6 +63,10 @@ if (Test-Path "C:\Windows\Setup\Scripts\lsa-policies.reg") {
 # ── Restore WinRM policy keys (backed up separately for safety)
 if (Test-Path "C:\Windows\Setup\Scripts\winrm-policies.reg") {
     reg import "C:\Windows\Setup\Scripts\winrm-policies.reg"
+}
+
+if (Test-Path "C:\Windows\Setup\Scripts\default-user-policies.reg") {
+    reg import "C:\Windows\Setup\Scripts\default-user-policies.reg"
 }
 
 # ── Self-destruct after successful restore
