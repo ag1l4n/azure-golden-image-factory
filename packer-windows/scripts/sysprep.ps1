@@ -12,7 +12,6 @@ auditpol.exe /backup /file:"$scriptsPath\cis-auditpol.csv"
 
 Write-Host "Creating Azure-Proof Scheduled Task to automatically restore policies on first boot..."
 $restoreScript = "$scriptsPath\RestoreCIS.ps1"
-# We use single quotes (@') so PowerShell doesn't prematurely expand the variables during the build
 $psCommand = @'
 secedit.exe /configure /db $env:windir\security\local.sdb /cfg C:\Windows\Setup\Scripts\cis-secpol.inf /overwrite /quiet
 auditpol.exe /restore /file:C:\Windows\Setup\Scripts\cis-auditpol.csv
