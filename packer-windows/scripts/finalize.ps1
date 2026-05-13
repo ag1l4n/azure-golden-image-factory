@@ -44,13 +44,23 @@ $restoreScript = "$scriptsPath\RestoreCIS.ps1"
 @'
 Start-Transcript -Path "C:\Windows\Setup\Scripts\RestoreCIS.log"
 
-# 1. Restore secedit security policy
-secedit.exe /configure /db $env:windir\security\local.sdb /cfg C:\Windows\Setup\Scripts\cis-secpol.inf /overwrite /quiet
+# -----------------------------------------------------------------------------
+# CRITICAL FIX 1: Avoid the Azure Network Race Condition
+# Let the Azure Guest Agent finish establishing DHCP and WireServer routes
+# before we tear down the firewall to reload it.
+# -----------------------------------------------------------------------------
+Start-Sleep -Seconds 60
 
-# 2. Restore audit policy
+# -----------------------------------------------------------------------------
+# CRITICAL FIX 2: OpenSSH SID Corruption
+# Sysprep generalized the Machine SID, breaking the ACLs on the old SSH keys.
+# Deleting them forces sshd to securely regenerate them on startup.
+# -----------------------------------------------------------------------------
+Remove-Item -Path "C:\ProgramData\ssh\ssh_host_*_key*" -Force -ErrorAction SilentlyContinue
+
+secedit.exe /configure /db $env:windir\security\local.sdb /cfg C:\Windows\Setup\Scripts\cis-secpol.inf /overwrite /quiet
 auditpol.exe /restore /file:C:\Windows\Setup\Scripts\cis-auditpol.csv
 
-# 3. Restore SOFTWARE\Policies\Microsoft registry hive (Firewall & Section 18.x)
 if (Test-Path "C:\Windows\Setup\Scripts\microsoft-policies.reg") {
     reg import "C:\Windows\Setup\Scripts\microsoft-policies.reg"
 }
@@ -58,18 +68,14 @@ if (Test-Path "C:\Windows\Setup\Scripts\lsa-policies.reg") {
     reg import "C:\Windows\Setup\Scripts\lsa-policies.reg"
 }
 
-# -----------------------------------------------------------------------------
-# CRITICAL FIX 1: Restart Firewall so it actively reads the GP registry rule!
-# -----------------------------------------------------------------------------
+# Restart Firewall to apply the Group Policy OpenSSH Rule
 $svc = Get-Service mpssvc
 while ($svc.Status -ne 'Running') { Start-Sleep -Seconds 2; $svc = Get-Service mpssvc }
 Restart-Service -Name mpssvc -Force
 
-# -----------------------------------------------------------------------------
-# CRITICAL FIX 2: Ensure SSH starts AFTER the firewall is open
-# -----------------------------------------------------------------------------
-Set-Service -Name sshd -StartupType Automatic -ErrorAction SilentlyContinue
-Start-Service -Name sshd -ErrorAction SilentlyContinue
+# Start OpenSSH
+Set-Service -Name sshd -StartupType Automatic
+Start-Service -Name sshd
 
 Unregister-ScheduledTask -TaskName 'RestoreCISPolicies' -Confirm:$false
 Stop-Transcript
@@ -97,9 +103,6 @@ $uacPath = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System"
 Set-ItemProperty -Path $uacPath -Name "LocalAccountTokenFilterPolicy" -Value 0 -Type DWord -Force
 
 Write-Output "Running Sysprep..."
-# -----------------------------------------------------------------------------
-# CRITICAL FIX 3: Start-Process -Wait guarantees Packer doesn't capture a corrupt VM
-# -----------------------------------------------------------------------------
 Start-Process -FilePath "$env:SystemRoot\System32\Sysprep\Sysprep.exe" -ArgumentList "/oobe /generalize /quiet /quit /mode:vm" -Wait -NoNewWindow
 
 Write-Output "=== finalize.ps1 complete ==="
