@@ -252,12 +252,7 @@ build {
   # These two controls cannot run through Ansible because they cut the session.
   # Done last, via PowerShell, with no active WinRM dependency.
   provisioner "powershell" { 
-    script = "${path.root}/../packer-windows/scripts/apply-winrm-cis-controls.ps1"
-  }
-  
-  # Step 6 — Generalize. Must always be last.
-  provisioner "powershell" {
-    script = "${path.root}/../packer-windows/scripts/sysprep.ps1"
+    script = "${path.root}/../packer-windows/scripts/finalize.ps1"
   }
 
   post-processor "manifest" {
