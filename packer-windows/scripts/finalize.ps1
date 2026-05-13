@@ -36,10 +36,24 @@ Write-Output "Installing OpenSSH Server..."
 Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0
 Start-Service sshd
 Set-Service -Name sshd -StartupType 'Automatic'
-New-NetFirewallRule -Name 'OpenSSH-Server-In-TCP' `
-    -DisplayName 'OpenSSH Server (sshd)' `
-    -Enabled True -Direction Inbound -Protocol TCP `
-    -Action Allow -LocalPort 22 -ErrorAction SilentlyContinue
+# Write the SSH allow rule to the GROUP POLICY firewall registry path.
+# New-NetFirewallRule creates a LOCAL rule which CIS 9.3.4 blocks via
+# AllowLocalPolicyMerge=0 on the Public profile. GP-level rules in
+# HKLM:\SOFTWARE\Policies\Microsoft\WindowsFirewall\FirewallRules are
+# enforced regardless of AllowLocalPolicyMerge.
+#
+# This key falls under HKLM\SOFTWARE\Policies\Microsoft, which is exported
+# to microsoft-policies.reg in Part 2 and restored on first boot by
+# RestoreCIS.ps1 — so the SSH rule survives sysprep automatically.
+$gpFWPath = "HKLM:\SOFTWARE\Policies\Microsoft\WindowsFirewall\FirewallRules"
+if (-not (Test-Path $gpFWPath)) {
+    New-Item -Path $gpFWPath -Force | Out-Null
+}
+Set-ItemProperty -Path $gpFWPath `
+    -Name "OpenSSH-Server-Inbound-TCP22" `
+    -Value "v2.31|Action=Allow|Active=TRUE|Dir=In|Protocol=6|LPort=22|Name=OpenSSH Server (sshd)|Desc=OpenSSH Server for pipeline scanning|" `
+    -Type String -Force
+Write-Output "GP firewall rule for port 22 written."
 
 # =============================================================================
 # PART 2: Back up CIS policy state BEFORE sysprep wipes it
@@ -88,6 +102,31 @@ if (Test-Path "C:\Windows\Setup\Scripts\microsoft-policies.reg") {
 if (Test-Path "C:\Windows\Setup\Scripts\lsa-policies.reg") {
     reg import "C:\Windows\Setup\Scripts\lsa-policies.reg"
 }
+
+@'
+# Restore secedit security policy
+secedit.exe /configure /db $env:windir\security\local.sdb /cfg C:\Windows\Setup\Scripts\cis-secpol.inf /overwrite /quiet
+
+# Restore audit policy
+auditpol.exe /restore /file:C:\Windows\Setup\Scripts\cis-auditpol.csv
+
+# Restore SOFTWARE\Policies\Microsoft registry hive (all section 18.x controls + GP firewall rules)
+# The SSH allow rule for port 22 was written to this hive before sysprep and is restored here.
+if (Test-Path "C:\Windows\Setup\Scripts\microsoft-policies.reg") {
+    reg import "C:\Windows\Setup\Scripts\microsoft-policies.reg"
+}
+
+# Restore LSA policy keys
+if (Test-Path "C:\Windows\Setup\Scripts\lsa-policies.reg") {
+    reg import "C:\Windows\Setup\Scripts\lsa-policies.reg"
+}
+
+# Restart sshd.
+# Sysprep generalize resets service startup types to Windows defaults.
+# The default startup type for OpenSSH Server on Windows Server is Disabled.
+# The GP firewall rule for port 22 was just restored above via microsoft-policies.reg.
+Set-Service -Name sshd -StartupType Automatic -ErrorAction SilentlyContinue
+Start-Service -Name sshd -ErrorAction SilentlyContinue
 
 # Self-destruct after successful restore
 Unregister-ScheduledTask -TaskName 'RestoreCISPolicies' -Confirm:$false
