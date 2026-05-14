@@ -231,6 +231,16 @@ jobs:
               --nic-delete-option delete \
               --os-disk-delete-option delete \
               --nsg-rule SSH
+
+            # Force the external Azure Firewall to allow SSH into your newly created Windows VM
+            az network nsg rule create \
+              --resource-group ${{ env.AZURE_RG }} \
+              --nsg-name scan-${{ matrix.os }}-vmNSG \
+              --name Allow-SSH-Pipeline \
+              --priority 1000 \
+              --destination-port-ranges 22 \
+              --access Allow \
+              --protocol Tcp
           else
             az vm create \
               --resource-group  ${{ env.AZURE_RG }} \
@@ -406,6 +416,11 @@ jobs:
             | xargs -I {} az network public-ip delete \
                 --resource-group ${{ env.AZURE_RG }} --name {} || true
 
+          # CRITICAL FIX: Clean up the orphaned NSG left behind by the VM
+          az network nsg delete \
+            --resource-group ${{ env.AZURE_RG }} \
+            --name scan-${{ matrix.os }}-vmNSG || true
+            
       - name: Upload Report Artifact
         if: always()
         uses: actions/upload-artifact@v4
