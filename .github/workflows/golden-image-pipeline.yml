@@ -260,42 +260,13 @@ jobs:
             --query publicIps -o tsv)
           echo "VM_IP=$VM_IP" >> $GITHUB_ENV
           sleep 20
-          
-      - name: Diagnose SSH state inside VM (Windows only)
-        if: ${{ matrix.os == 'windows' }}
-        run: |
-          echo "Checking sshd service state and firewall from inside the VM..."
-          az vm run-command invoke \
-            --resource-group ${{ env.AZURE_RG }} \
-            --name scan-${{ matrix.os }}-vm \
-            --command-id RunPowerShellScript \
-            --scripts "
-              Write-Output '--- sshd service ---'
-              Get-Service sshd | Select Name, Status, StartType | Format-List
-              
-              Write-Output '--- Port 22 listener ---'
-              netstat -ano | Select-String ':22'
-              
-              Write-Output '--- GP Firewall rule for SSH ---'
-              Get-Item 'HKLM:\SOFTWARE\Policies\Microsoft\WindowsFirewall\FirewallRules' -ErrorAction SilentlyContinue | Get-ItemProperty | Select-Object 'OpenSSH-Server-Inbound-TCP22'
-              
-              Write-Output '--- AllowLocalPolicyMerge (should be 0 for CIS) ---'
-              (Get-ItemProperty HKLM:\SOFTWARE\Policies\Microsoft\WindowsFirewall\PublicProfile).AllowLocalPolicyMerge
 
-              Write-Output '=== 1. SSH SERVICE STATUS ==='
-              Get-Service sshd | Select-Object Status, Name, DisplayName
-              
-              Write-Output '=== 2. OS FIREWALL STATUS (PORT 22) ==='
-              Get-NetFirewallPortFilter | Where-Object LocalPort -eq 22 | Get-NetFirewallRule | Select-Object Name, Action, Enabled
-              
-              Write-Output '=== 3. OPENSSH EVENT LOGS ==='
-              Get-EventLog -LogName Application -Source OpenSSH -Newest 5 -ErrorAction SilentlyContinue | Select-Object Message
-              
-              Write-Output '=== 4. CIS RESTORE LOG ==='
-              Get-Content C:\Windows\Setup\Scripts\RestoreCIS.log -ErrorAction SilentlyContinue
-            " \
-            --query value[0].message -o tsv || true
-            
+      # ──────────────────────────────────────────────────────────────────────
+      # WAIT FOR SSH
+      # ──────────────────────────────────────────────────────────────────────
+      
+      - name: Wait for SSH Connection
+        run: |
           if [[ "${{ matrix.os }}" == "windows" ]]; then
             echo "Waiting for SSH on Windows VM ($VM_IP)..."
             for i in {1..30}; do
@@ -330,6 +301,45 @@ jobs:
               fi
             done
           fi
+      
+      # ──────────────────────────────────────────────────────────────────────
+      # DIAGNOSTIC DUMP (RUNS ONLY IF SSH FAILS)
+      # ──────────────────────────────────────────────────────────────────────
+      
+      - name: Diagnose SSH state inside VM (Windows only)
+        if: failure() && matrix.os == 'windows'
+        run: |
+          echo "SSH Wait loop failed! Checking sshd service state and firewall from inside the VM..."
+          az vm run-command invoke \
+            --resource-group ${{ env.AZURE_RG }} \
+            --name scan-${{ matrix.os }}-vm \
+            --command-id RunPowerShellScript \
+            --scripts "
+              Write-Output '--- sshd service ---'
+              Get-Service sshd | Select Name, Status, StartType | Format-List
+              
+              Write-Output '--- Port 22 listener ---'
+              netstat -ano | Select-String ':22'
+              
+              Write-Output '--- GP Firewall rule for SSH ---'
+              Get-Item 'HKLM:\SOFTWARE\Policies\Microsoft\WindowsFirewall\FirewallRules' -ErrorAction SilentlyContinue | Get-ItemProperty | Select-Object 'OpenSSH-Server-Inbound-TCP22'
+              
+              Write-Output '--- AllowLocalPolicyMerge (should be 0 for CIS) ---'
+              (Get-ItemProperty HKLM:\SOFTWARE\Policies\Microsoft\WindowsFirewall\PublicProfile).AllowLocalPolicyMerge
+
+              Write-Output '=== 1. SSH SERVICE STATUS ==='
+              Get-Service sshd | Select-Object Status, Name, DisplayName
+              
+              Write-Output '=== 2. OS FIREWALL STATUS (PORT 22) ==='
+              Get-NetFirewallPortFilter | Where-Object LocalPort -eq 22 | Get-NetFirewallRule | Select-Object Name, Action, Enabled
+              
+              Write-Output '=== 3. OPENSSH EVENT LOGS ==='
+              Get-EventLog -LogName Application -Source OpenSSH -Newest 5 -ErrorAction SilentlyContinue | Select-Object Message
+              
+              Write-Output '=== 4. CIS RESTORE LOG ==='
+              Get-Content C:\Windows\Setup\Scripts\RestoreCIS.log -ErrorAction SilentlyContinue
+            " \
+            --query value[0].message -o tsv || true
 
       # ──────────────────────────────────────────────────────────────────────
       # SCAN PHASE
