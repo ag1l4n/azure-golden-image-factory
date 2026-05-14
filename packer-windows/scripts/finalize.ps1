@@ -63,6 +63,7 @@ if (Test-Path "C:\Windows\Setup\Scripts\lsa-policies.reg") {
 
 # Sysprep generalize resets sshd startup type to Disabled (the Windows Server default).
 # Must set Automatic BEFORE Start-Service — starting a Disabled service silently fails.
+Start-Process -FilePath "C:\Windows\System32\OpenSSH\ssh-keygen.exe" -ArgumentList "-A" -NoNewWindow -Wait
 Set-Service -Name sshd -StartupType Automatic -ErrorAction SilentlyContinue
 Start-Service -Name sshd -ErrorAction SilentlyContinue
 
