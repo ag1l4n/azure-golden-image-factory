@@ -8,22 +8,9 @@ function Set-Reg {
     Set-ItemProperty -Path $Path -Name $Name -Value $Value -Type $Type -Force
 }
 
-Write-Output "=== Part 1: Install OpenSSH & GP-level Firewall Rule ==="
+Write-Output "=== Part 1: GP-level Firewall Rule for SSH ==="
 Set-Reg "HKLM:\SYSTEM\CurrentControlSet\Control\Lsa\MSV1_0" "RestrictReceivingNTLMTraffic" 2
 
-Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0
-Set-Service -Name sshd -StartupType 'Automatic'
-Start-Service -Name sshd -ErrorAction SilentlyContinue
-
-# Write SSH allow rule at the GROUP POLICY firewall registry level.
-# New-NetFirewallRule creates a LOCAL rule. CIS 9.3.4 sets AllowLocalPolicyMerge=0
-# on the Public profile, which silently discards all local rules. GP-level rules
-# under HKLM:\SOFTWARE\Policies\Microsoft\WindowsFirewall\FirewallRules are
-# enforced regardless of AllowLocalPolicyMerge.
-#
-# This key is under HKLM\SOFTWARE\Policies\Microsoft, which is exported to
-# microsoft-policies.reg in Part 2. RestoreCIS.ps1 imports that file on first
-# boot, so this rule survives sysprep automatically — no extra restore step needed.
 $gpFWPath = "HKLM:\SOFTWARE\Policies\Microsoft\WindowsFirewall\FirewallRules"
 if (-not (Test-Path $gpFWPath)) { New-Item -Path $gpFWPath -Force | Out-Null }
 Set-ItemProperty -Path $gpFWPath `
@@ -39,8 +26,6 @@ if (!(Test-Path $scriptsPath)) { New-Item -ItemType Directory -Force -Path $scri
 
 secedit.exe /export /cfg "$scriptsPath\cis-secpol.inf" /quiet
 auditpol.exe /backup /file:"$scriptsPath\cis-auditpol.csv"
-reg export "HKLM\SOFTWARE\Policies\Microsoft" "$scriptsPath\microsoft-policies.reg" /y
-reg export "HKLM\SYSTEM\CurrentControlSet\Control\Lsa" "$scriptsPath\lsa-policies.reg" /y
 
 $restoreScript = "$scriptsPath\RestoreCIS.ps1"
 @'
@@ -49,20 +34,11 @@ Start-Transcript -Path "C:\Windows\Setup\Scripts\RestoreCIS.log"
 # Remove stale SSH host keys left by sysprep so sshd can generate fresh ones
 Remove-Item -Path "C:\ProgramData\ssh\ssh_host_*_key*" -Force -ErrorAction SilentlyContinue
 
+# Restore security and audit policies natively
 secedit.exe /configure /db $env:windir\security\local.sdb /cfg C:\Windows\Setup\Scripts\cis-secpol.inf /overwrite /quiet
 auditpol.exe /restore /file:C:\Windows\Setup\Scripts\cis-auditpol.csv
 
-# Restore SOFTWARE\Policies\Microsoft hive — this includes the GP firewall rule
-# for port 22 that was written in Part 1 of finalize.ps1 before the reg export.
-if (Test-Path "C:\Windows\Setup\Scripts\microsoft-policies.reg") {
-    reg import "C:\Windows\Setup\Scripts\microsoft-policies.reg"
-}
-if (Test-Path "C:\Windows\Setup\Scripts\lsa-policies.reg") {
-    reg import "C:\Windows\Setup\Scripts\lsa-policies.reg"
-}
-
-# Sysprep generalize resets sshd startup type to Disabled (the Windows Server default).
-# Must set Automatic BEFORE Start-Service — starting a Disabled service silently fails.
+# Generate fresh SSH keys and start the service
 Start-Process -FilePath "C:\Windows\System32\OpenSSH\ssh-keygen.exe" -ArgumentList "-A" -NoNewWindow -Wait
 Set-Service -Name sshd -StartupType Automatic -ErrorAction SilentlyContinue
 Start-Service -Name sshd -ErrorAction SilentlyContinue
@@ -72,7 +48,6 @@ Stop-Transcript
 '@ | Out-File -FilePath $restoreScript -Encoding ASCII -Force
 
 $action    = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument "-ExecutionPolicy Bypass -WindowStyle Hidden -File $restoreScript"
-# Adding a 15-second delay so Azure Agent gets CPU priority first
 $trigger   = New-ScheduledTaskTrigger -AtStartup
 $principal = New-ScheduledTaskPrincipal -UserId "NT AUTHORITY\SYSTEM" -LogonType ServiceAccount -RunLevel Highest
 $settings  = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
