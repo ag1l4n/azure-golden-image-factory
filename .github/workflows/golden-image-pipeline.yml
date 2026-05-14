@@ -237,7 +237,7 @@ jobs:
               --resource-group ${{ env.AZURE_RG }} \
               --nsg-name scan-${{ matrix.os }}-vmNSG \
               --name Allow-SSH-Pipeline \
-              --priority 1000 \
+              --priority 1010 \
               --destination-port-ranges 22 \
               --access Allow \
               --protocol Tcp
