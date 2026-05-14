@@ -190,6 +190,28 @@ jobs:
              && (inputs.windows_image_name_override || 'windows-server-2022-cis')
              || '' }}
 
+      - name: Diagnose SSH state inside VM (Windows only)
+        if: ${{ matrix.os == 'windows' }}
+        run: |
+          echo "Checking sshd service state and firewall from inside the VM..."
+          az vm run-command invoke \
+            --resource-group ${{ env.AZURE_RG }} \
+            --name scan-${{ matrix.os }}-vm \
+            --command-id RunPowerShellScript \
+            --scripts "
+              Write-Output '--- sshd service ---'
+              Get-Service sshd | Select Name, Status, StartType | Format-List
+              Write-Output '--- Port 22 listener ---'
+              netstat -ano | Select-String ':22'
+              Write-Output '--- GP Firewall rule for SSH ---'
+              Get-Item 'HKLM:\SOFTWARE\Policies\Microsoft\WindowsFirewall\FirewallRules' -ErrorAction SilentlyContinue | Get-ItemProperty | Select-Object 'OpenSSH-Server-Inbound-TCP22'
+              Write-Output '--- AllowLocalPolicyMerge (should be 0 for CIS) ---'
+              (Get-ItemProperty HKLM:\SOFTWARE\Policies\Microsoft\WindowsFirewall\PublicProfile).AllowLocalPolicyMerge
+              Write-Output '--- RestoreCIS log ---'
+              Get-Content C:\Windows\Setup\Scripts\RestoreCIS.log -ErrorAction SilentlyContinue
+            " \
+            --query value[0].message -o tsv || true
+      
       # ──────────────────────────────────────────────────────────────────────
       # DEPLOY EPHEMERAL VM FOR SCANNING
       # ──────────────────────────────────────────────────────────────────────
