@@ -8,14 +8,29 @@ function Set-Reg {
     Set-ItemProperty -Path $Path -Name $Name -Value $Value -Type $Type -Force
 }
 
-Write-Output "=== Part 1: Install OpenSSH & Network Safe Firewall Rule ==="
+Write-Output "=== Part 1: Install OpenSSH & GP-level Firewall Rule ==="
 Set-Reg "HKLM:\SYSTEM\CurrentControlSet\Control\Lsa\MSV1_0" "RestrictReceivingNTLMTraffic" 2
 
 Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0
 Set-Service -Name sshd -StartupType 'Automatic'
+Start-Service -Name sshd -ErrorAction SilentlyContinue
 
-# This native rule survives Sysprep and takes effect immediately (No Firewall Restart needed!)
-New-NetFirewallRule -Name "OpenSSH-Pipeline" -DisplayName "OpenSSH Server (sshd)" -Enabled True -Direction Inbound -Protocol TCP -Action Allow -LocalPort 22 -ErrorAction SilentlyContinue
+# Write SSH allow rule at the GROUP POLICY firewall registry level.
+# New-NetFirewallRule creates a LOCAL rule. CIS 9.3.4 sets AllowLocalPolicyMerge=0
+# on the Public profile, which silently discards all local rules. GP-level rules
+# under HKLM:\SOFTWARE\Policies\Microsoft\WindowsFirewall\FirewallRules are
+# enforced regardless of AllowLocalPolicyMerge.
+#
+# This key is under HKLM\SOFTWARE\Policies\Microsoft, which is exported to
+# microsoft-policies.reg in Part 2. RestoreCIS.ps1 imports that file on first
+# boot, so this rule survives sysprep automatically — no extra restore step needed.
+$gpFWPath = "HKLM:\SOFTWARE\Policies\Microsoft\WindowsFirewall\FirewallRules"
+if (-not (Test-Path $gpFWPath)) { New-Item -Path $gpFWPath -Force | Out-Null }
+Set-ItemProperty -Path $gpFWPath `
+    -Name "OpenSSH-Server-Inbound-TCP22" `
+    -Value "v2.31|Action=Allow|Active=TRUE|Dir=In|Protocol=6|LPort=22|Name=OpenSSH Server (sshd)|Desc=OpenSSH Server for pipeline scanning|" `
+    -Type String -Force
+Write-Output "GP firewall rule for port 22 written."
 
 
 Write-Output "=== Part 2: Backing up CIS policy state ==="
@@ -31,16 +46,24 @@ $restoreScript = "$scriptsPath\RestoreCIS.ps1"
 @'
 Start-Transcript -Path "C:\Windows\Setup\Scripts\RestoreCIS.log"
 
-# Fix SID Corruption so sshd can start cleanly
+# Remove stale SSH host keys left by sysprep so sshd can generate fresh ones
 Remove-Item -Path "C:\ProgramData\ssh\ssh_host_*_key*" -Force -ErrorAction SilentlyContinue
 
 secedit.exe /configure /db $env:windir\security\local.sdb /cfg C:\Windows\Setup\Scripts\cis-secpol.inf /overwrite /quiet
 auditpol.exe /restore /file:C:\Windows\Setup\Scripts\cis-auditpol.csv
 
-if (Test-Path "C:\Windows\Setup\Scripts\microsoft-policies.reg") { reg import "C:\Windows\Setup\Scripts\microsoft-policies.reg" }
-if (Test-Path "C:\Windows\Setup\Scripts\lsa-policies.reg") { reg import "C:\Windows\Setup\Scripts\lsa-policies.reg" }
+# Restore SOFTWARE\Policies\Microsoft hive — this includes the GP firewall rule
+# for port 22 that was written in Part 1 of finalize.ps1 before the reg export.
+if (Test-Path "C:\Windows\Setup\Scripts\microsoft-policies.reg") {
+    reg import "C:\Windows\Setup\Scripts\microsoft-policies.reg"
+}
+if (Test-Path "C:\Windows\Setup\Scripts\lsa-policies.reg") {
+    reg import "C:\Windows\Setup\Scripts\lsa-policies.reg"
+}
 
-# Start OpenSSH natively (Firewall is already open)
+# Sysprep generalize resets sshd startup type to Disabled (the Windows Server default).
+# Must set Automatic BEFORE Start-Service — starting a Disabled service silently fails.
+Set-Service -Name sshd -StartupType Automatic -ErrorAction SilentlyContinue
 Start-Service -Name sshd -ErrorAction SilentlyContinue
 
 Unregister-ScheduledTask -TaskName 'RestoreCISPolicies' -Confirm:$false
