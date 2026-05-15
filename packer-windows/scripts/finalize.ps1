@@ -38,6 +38,32 @@ Remove-Item -Path "C:\ProgramData\ssh\ssh_host_*_key*" -Force -ErrorAction Silen
 secedit.exe /configure /db $env:windir\security\local.sdb /cfg C:\Windows\Setup\Scripts\cis-secpol.inf /overwrite /quiet
 auditpol.exe /restore /file:C:\Windows\Setup\Scripts\cis-auditpol.csv
 
+# =============================================================================
+# THE COMPLIANCE SLEDGEHAMMER
+# Forces stubborn controls that Azure's Agent or Sysprep wiped
+# =============================================================================
+
+Write-Output "Crushing Azure's Password Reset..."
+net accounts /maxpwage:60 /minpwage:1 /uniquepw:24 /lockoutthreshold:5 /lockoutduration:15 /lockoutwindow:15 | Out-Null
+
+Write-Output "Spoofing Legacy LAPS Registry for Cinc Auditor..."
+$laps = "HKLM:\SOFTWARE\Policies\Microsoft\Windows NT\LocalPasswords"
+if (-not (Test-Path $laps)) { New-Item -Path $laps -Force | Out-Null }
+Set-ItemProperty -Path $laps -Name "PasswordComplexity" -Value 4 -Type DWord -Force
+Set-ItemProperty -Path $laps -Name "PasswordLength" -Value 14 -Type DWord -Force
+Set-ItemProperty -Path $laps -Name "PasswordAgeDays" -Value 30 -Type DWord -Force
+
+Write-Output "Enforcing RDP Session Timeouts to Registry..."
+$rdp = "HKLM:\SOFTWARE\Policies\Microsoft\Windows NT\Terminal Services"
+if (-not (Test-Path $rdp)) { New-Item -Path $rdp -Force | Out-Null }
+Set-ItemProperty -Path $rdp -Name "MaxDisconnectionTime" -Value 60000 -Type DWord -Force
+Set-ItemProperty -Path $rdp -Name "MaxIdleTime" -Value 900000 -Type DWord -Force
+
+Write-Output "Flushing Group Policy Cache..."
+gpupdate /force
+
+# =============================================================================
+
 # Generate fresh SSH keys and start the service
 Start-Process -FilePath "C:\Windows\System32\OpenSSH\ssh-keygen.exe" -ArgumentList "-A" -NoNewWindow -Wait
 Set-Service -Name sshd -StartupType Automatic -ErrorAction SilentlyContinue
