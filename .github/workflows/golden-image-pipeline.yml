@@ -140,6 +140,13 @@ jobs:
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
+      - name: Pre-Flight Marketplace Terms Acceptance
+        run: |
+          # Automatically accept terms for Rocky
+          az vm image terms accept --urn resf:rockylinux-x86_64:9-base:latest || true
+          # Automatically accept terms for others if needed
+          az vm image terms accept --urn Canonical:0001-com-ubuntu-server-jammy:22_04-lts:latest || true
+          az vm image terms accept --urn RedHat:RHEL:9-lvm || true
       # ──────────────────────────────────────────────────────────────────────
       # PACKER BUILD PHASE
       # ──────────────────────────────────────────────────────────────────────
@@ -252,6 +259,21 @@ jobs:
               --destination-port-ranges 22 \
               --access Allow \
               --protocol Tcp
+          elif [[ "${{ matrix.os }}" == "rocky" ]]; then
+            # Rocky Linux 9 needs the plan info passed during creation
+            az vm create \
+              --resource-group  ${{ env.AZURE_RG }} \
+              --name            scan-${{ matrix.os }}-vm \
+              --image           "$IMAGE_ID" \
+              --admin-username  sysadmin \
+              --ssh-key-values  ~/.ssh/scanner_key.pub \
+              --location        ${{ env.AZURE_LOCATION }} \
+              --size            ${{ env.VM_SIZE }} \
+              --plan-publisher  resf \
+              --plan-product    rockylinux-x86_64 \
+              --plan-name       9-base \
+              --nic-delete-option delete \
+              --os-disk-delete-option delete
           else
             az vm create \
               --resource-group  ${{ env.AZURE_RG }} \
