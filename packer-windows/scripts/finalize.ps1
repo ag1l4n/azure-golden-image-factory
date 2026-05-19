@@ -17,7 +17,6 @@ Set-ItemProperty -Path $gpFWPath `
     -Name "OpenSSH-Server-Inbound-TCP22" `
     -Value "v2.31|Action=Allow|Active=TRUE|Dir=In|Protocol=6|LPort=22|Name=OpenSSH Server (sshd)|Desc=OpenSSH Server for pipeline scanning|" `
     -Type String -Force
-Write-Output "GP firewall rule for port 22 written."
 
 
 Write-Output "=== Part 2: Backing up CIS policy state ==="
@@ -27,44 +26,42 @@ if (!(Test-Path $scriptsPath)) { New-Item -ItemType Directory -Force -Path $scri
 secedit.exe /export /cfg "$scriptsPath\cis-secpol.inf" /quiet
 auditpol.exe /backup /file:"$scriptsPath\cis-auditpol.csv"
 
+# Re-enabling the Registry Export
+reg export "HKLM\SOFTWARE\Policies\Microsoft" "$scriptsPath\microsoft-policies.reg" /y
+reg export "HKLM\SYSTEM\CurrentControlSet\Control\Lsa" "$scriptsPath\lsa-policies.reg" /y
+
+
 $restoreScript = "$scriptsPath\RestoreCIS.ps1"
 @'
 Start-Transcript -Path "C:\Windows\Setup\Scripts\RestoreCIS.log"
 
-# Remove stale SSH host keys left by sysprep so sshd can generate fresh ones
 Remove-Item -Path "C:\ProgramData\ssh\ssh_host_*_key*" -Force -ErrorAction SilentlyContinue
 
 # Restore security and audit policies natively
 secedit.exe /configure /db $env:windir\security\local.sdb /cfg C:\Windows\Setup\Scripts\cis-secpol.inf /overwrite /quiet
 auditpol.exe /restore /file:C:\Windows\Setup\Scripts\cis-auditpol.csv
 
-# =============================================================================
-# THE COMPLIANCE SLEDGEHAMMER
-# Forces stubborn controls that Azure's Agent or Sysprep wiped
-# =============================================================================
+# CRITICAL FIX: Use regedit /s to silently merge the registry and bypass locked-key aborts
+if (Test-Path "C:\Windows\Setup\Scripts\microsoft-policies.reg") { Start-Process -FilePath "regedit.exe" -ArgumentList "/s C:\Windows\Setup\Scripts\microsoft-policies.reg" -Wait }
+if (Test-Path "C:\Windows\Setup\Scripts\lsa-policies.reg") { Start-Process -FilePath "regedit.exe" -ArgumentList "/s C:\Windows\Setup\Scripts\lsa-policies.reg" -Wait }
 
-Write-Output "Crushing Azure's Password Reset..."
+# The Sledgehammer
 net accounts /maxpwage:60 /minpwage:1 /uniquepw:24 /lockoutthreshold:5 /lockoutduration:15 /lockoutwindow:15 | Out-Null
 
-Write-Output "Spoofing Legacy LAPS Registry for Cinc Auditor..."
 $laps = "HKLM:\SOFTWARE\Policies\Microsoft\Windows NT\LocalPasswords"
 if (-not (Test-Path $laps)) { New-Item -Path $laps -Force | Out-Null }
 Set-ItemProperty -Path $laps -Name "PasswordComplexity" -Value 4 -Type DWord -Force
 Set-ItemProperty -Path $laps -Name "PasswordLength" -Value 14 -Type DWord -Force
 Set-ItemProperty -Path $laps -Name "PasswordAgeDays" -Value 30 -Type DWord -Force
 
-Write-Output "Enforcing RDP Session Timeouts to Registry..."
 $rdp = "HKLM:\SOFTWARE\Policies\Microsoft\Windows NT\Terminal Services"
 if (-not (Test-Path $rdp)) { New-Item -Path $rdp -Force | Out-Null }
 Set-ItemProperty -Path $rdp -Name "MaxDisconnectionTime" -Value 60000 -Type DWord -Force
 Set-ItemProperty -Path $rdp -Name "MaxIdleTime" -Value 900000 -Type DWord -Force
 
-Write-Output "Flushing Group Policy Cache..."
 gpupdate /force
 
-# =============================================================================
-
-# Generate fresh SSH keys and start the service
+# Start OpenSSH
 Start-Process -FilePath "C:\Windows\System32\OpenSSH\ssh-keygen.exe" -ArgumentList "-A" -NoNewWindow -Wait
 Set-Service -Name sshd -StartupType Automatic -ErrorAction SilentlyContinue
 Start-Service -Name sshd -ErrorAction SilentlyContinue
@@ -80,7 +77,7 @@ $settings  = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGo
 Register-ScheduledTask -TaskName 'RestoreCISPolicies' -Action $action -Trigger $trigger -Principal $principal -Settings $settings -Force
 
 
-Write-Output "=== Part 3: WinRM CIS controls (locks WinRM for new connections) ==="
+Write-Output "=== Part 3: WinRM CIS controls ==="
 Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\Windows\WinRM\Client" "AllowBasic" 0
 Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\Windows\WinRM\Client" "AllowUnencryptedTraffic" 0
 Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\Windows\WinRM\Client" "AllowDigest" 0
@@ -90,10 +87,8 @@ Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\Windows\WinRM\Service" "AllowUnencryp
 Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\Windows\WinRM\Service" "DisableRunAs" 1
 Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\Windows\WinRM\Service\WinRS" "AllowRemoteShellAccess" 0
 
-
 Write-Output "=== Part 4: Sysprep ==="
 $uacPath = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System"
 Set-ItemProperty -Path $uacPath -Name "LocalAccountTokenFilterPolicy" -Value 0 -Type DWord -Force
 
-Write-Output "Running Sysprep..."
 Start-Process -FilePath "$env:SystemRoot\System32\Sysprep\Sysprep.exe" -ArgumentList "/oobe /generalize /quiet /quit /mode:vm" -Wait -NoNewWindow
