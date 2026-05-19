@@ -186,10 +186,6 @@ source "azure-arm" "win2022_cis_l1" {
   winrm_timeout  = "30m"
   winrm_username = "packer"
 
-  # Output: managed image + Compute Gallery version
-  managed_image_name                = local.image_name
-  managed_image_resource_group_name = var.resource_group
-
   shared_image_gallery_destination {
     gallery_name        = var.gallery_name
     image_name          = var.image_definition_name
