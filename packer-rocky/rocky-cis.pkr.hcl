@@ -19,8 +19,8 @@ source "azure-arm" "rocky-cis" {
   
   # Rocky 9 Marketplace Image
   image_publisher = "resf"
-  image_offer     = "rockylinux-9"
-  image_sku       = "rockylinux-9"
+  image_offer     = "rockylinux-x86_64"
+  image_sku       = "9-base"
   image_version   = "latest"
   
   os_type         = "Linux"
