@@ -25,7 +25,13 @@ source "azure-arm" "rocky-cis" {
   
   os_type         = "Linux"
   vm_size         = var.vm_size
-  
+
+  plan {
+    publisher = "resf"
+    product   = "rockylinux-x86_64"
+    name      = "9-base"
+  }
+
   shared_image_gallery_destination {
     subscription          = var.subscription_id
     resource_group        = var.resource_group
