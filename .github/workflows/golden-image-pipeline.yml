@@ -147,60 +147,73 @@ jobs:
           # Automatically accept terms for others if needed
           az vm image terms accept --urn RedHat:RHEL:9-lvm || true
 
-      
-      # ──────────────────────────────────────────────────────────────────────
-      # PACKER BUILD PHASE
-      # ──────────────────────────────────────────────────────────────────────
-      - name: Ensure Rocky Gallery Image Definition Exists
-        if: ${{ matrix.os == 'rocky' }}
+      - name: Ensure Compute Gallery Image Definition Exists
         run: |
-          # Check if definition already exists
+          case "${{ matrix.os }}" in
+            "ubuntu")
+              DEF_NAME="ubuntu-nvme-cis"
+              OS_TYPE="Linux"
+              PUBLISHER="Canonical"
+              OFFER="0001-com-ubuntu-server-jammy"
+              SKU="22_04-lts-gen2"
+              ;;
+            "rhel")
+              DEF_NAME="rhel-nvme-cis"
+              OS_TYPE="Linux"
+              PUBLISHER="RedHat"
+              OFFER="RHEL"
+              SKU="9-lvm"
+              ;;
+            "rocky")
+              DEF_NAME="rocky-nvme-cis"
+              OS_TYPE="Linux"
+              PUBLISHER="resf"
+              OFFER="rockylinux-x86_64"
+              SKU="9-base"
+              PLAN_ARGS="--plan-name 9-base --plan-publisher resf --plan-product rockylinux-x86_64"
+              ;;
+            "windows")
+              DEF_NAME="windows-server-2022-cis"
+              OS_TYPE="Windows"
+              PUBLISHER="MicrosoftWindowsServer"
+              OFFER="WindowsServer"
+              SKU="2022-datacenter-g2"
+              ;;
+            *)
+              echo "ERROR: Unrecognised OS '${{ matrix.os }}', cannot ensure image definition."
+              exit 1
+              ;;
+          esac
+
           EXISTING=$(az sig image-definition show \
             --resource-group ${{ env.AZURE_RG }} \
             --gallery-name   ${{ env.AZURE_GALLERY }} \
-            --gallery-image-definition rocky-nvme-cis \
+            --gallery-image-definition "$DEF_NAME" \
             --query name -o tsv 2>/dev/null || echo "")
-      
-          if [[ -z "$EXISTING" ]]; then
-            echo "Creating Rocky image definition with purchase plan..."
-            az sig image-definition create \
-              --resource-group ${{ env.AZURE_RG }} \
-              --gallery-name   ${{ env.AZURE_GALLERY }} \
-              --gallery-image-definition rocky-nvme-cis \
-              --publisher      resf \
-              --offer          rockylinux-x86_64 \
-              --sku            9-base \
-              --os-type        Linux \
-              --os-state       Generalized \
-              --plan-name      9-base \
-              --plan-publisher resf \
-              --plan-product   rockylinux-x86_64
-          else
-            echo "Definition already exists, skipping creation."
+
+          if [[ -n "$EXISTING" ]]; then
+            echo "Definition '$DEF_NAME' already exists — skipping."
+            exit 0
           fi
+
+          echo "Creating image definition '$DEF_NAME'..."
+          az sig image-definition create \
+            --resource-group ${{ env.AZURE_RG }} \
+            --gallery-name   ${{ env.AZURE_GALLERY }} \
+            --gallery-image-definition "$DEF_NAME" \
+            --publisher      "$PUBLISHER" \
+            --offer          "$OFFER" \
+            --sku            "$SKU" \
+            --os-type        "$OS_TYPE" \
+            --os-state       Generalized \
+            ${PLAN_ARGS:-}
+
+          echo "Definition '$DEF_NAME' created successfully."
           
-          elif [[ "${{ matrix.os }}" == "RHEL 9" ]]; then
-            echo "Creating RHEL image definition with purchase plan..."
-            az sig image-definition create \
-              --resource-group ${{ env.AZURE_RG }} \
-              --gallery-name   ${{ env.AZURE_GALLERY }} \
-              --gallery-image-definition rhel-nvme-cis \
-              --publisher      RedHat \
-              --offer          RHEL \
-              --sku            9-lvm \
-              --os-type        Linux \
-              --os-state       Generalized
-          elif [[ "${{ matrix.os }}" == "RHEL 9" ]]; then
-            echo "Creating RHEL image definition with purchase plan..."
-            az sig image-definition create \
-              --resource-group ${{ env.AZURE_RG }} \
-              --gallery-name   ${{ env.AZURE_GALLERY }} \
-              --gallery-image-definition rhel-nvme-cis \
-              --publisher      RedHat \
-              --offer          RHEL \
-              --sku            9-lvm \
-              --os-type        Linux \
-              --os-state       Generalized
+      # ──────────────────────────────────────────────────────────────────────
+      # PACKER BUILD PHASE
+      # ──────────────────────────────────────────────────────────────────────
+            
       - name: Setup HashiCorp Packer
         if: ${{ inputs.scan_only != true }}
         uses: hashicorp/setup-packer@main
