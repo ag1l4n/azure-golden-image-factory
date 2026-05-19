@@ -73,8 +73,8 @@ jobs:
         id: version
         run: |
           RAW="${{ steps.semver.outputs.new_version }}"
-          CLEAN="${RAW#v}"        # strip leading 'v' if present
-          CLEAN="${CLEAN%%-*}"    # strip pre-release suffix
+          CLEAN="${RAW#v}"
+          CLEAN="${CLEAN%%-*}"
           echo "clean_version=$CLEAN" >> $GITHUB_OUTPUT
 
       - name: Set Dynamic Matrix
@@ -101,7 +101,7 @@ jobs:
     needs: prepare
     runs-on: ubuntu-latest
     strategy:
-      fail-fast: false  # Let other OS legs complete even if one fails
+      fail-fast: false
       matrix:
         os: ${{ fromJson(needs.prepare.outputs.matrix_config) }}
 
@@ -112,7 +112,6 @@ jobs:
       VM_SIZE:        ${{ vars.VM_SIZE }}
       WINDOWS_ADMIN_PASS: ${{ secrets.WINDOWS_LOCAL_ADMIN_PASSWORD }}
 
-      # ── Packer variables shared across all OS legs ──────────────────────
       PKR_VAR_resource_group:        ${{ vars.AZURE_RG }}
       PKR_VAR_gallery_name:          ${{ vars.AZURE_GALLERY }}
       PKR_VAR_location:              ${{ inputs.azure_region || vars.AZURE_LOCATION }}
@@ -120,16 +119,9 @@ jobs:
       PKR_VAR_subscription_id:       ${{ secrets.AZURE_SUBSCRIPTION_ID }}
       PKR_VAR_client_id:             ${{ secrets.AZURE_CLIENT_ID }}
       PKR_VAR_client_secret:         ${{ secrets.AZURE_CLIENT_SECRET }}
-
-      # ── Linux-only Packer variables (declared in ubuntu/rhel templates) ──
       PKR_VAR_local_admin_username:  sysadmin
       PKR_VAR_local_admin_password:  ${{ secrets.WINDOWS_LOCAL_ADMIN_PASSWORD }}
-
-      # ── Windows-only Packer variables ────────────────────────────────────
-      # PKR_VAR_tenant_id is required by the azure-arm plugin for Windows builds.
-      # Add AZURE_TENANT_ID to your repository secrets.
-      # (Extract it from your AZURE_CREDENTIALS JSON: .tenantId)
-      PKR_VAR_tenant_id: ${{ secrets.AZURE_TENANT_ID }}
+      PKR_VAR_tenant_id:             ${{ secrets.AZURE_TENANT_ID }}
 
     steps:
       - name: Checkout Code
@@ -140,12 +132,26 @@ jobs:
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
+      # ── BUG FIX: Resolve a short slug for use in Azure resource names ────
+      # matrix.os contains spaces/dots ("Ubuntu 22.04", "RHEL 9", etc.)
+      # which are invalid in Azure VM and NSG names. VM_SLUG is safe to use.
+      - name: Resolve VM Slug
+        run: |
+          case "${{ matrix.os }}" in
+            "Ubuntu 22.04")        echo "VM_SLUG=ubuntu"  >> $GITHUB_ENV ;;
+            "RHEL 9")              echo "VM_SLUG=rhel"    >> $GITHUB_ENV ;;
+            "Rocky 9")             echo "VM_SLUG=rocky"   >> $GITHUB_ENV ;;
+            "Windows Server 2022") echo "VM_SLUG=windows" >> $GITHUB_ENV ;;
+            *)
+              echo "ERROR: Unrecognised OS '${{ matrix.os }}'"
+              exit 1
+              ;;
+          esac
+
       - name: Pre-Flight Marketplace Terms Acceptance
         run: |
-          # Automatically accept terms for Rocky
           az vm image terms accept --urn resf:rockylinux-x86_64:9-base:latest || true
-          # Automatically accept terms for others if needed
-          az vm image terms accept --urn RedHat:RHEL:9-lvm || true
+          az vm image terms accept --urn RedHat:RHEL:9-lvm:latest || true
 
       - name: Ensure Compute Gallery Image Definition Exists
         run: |
@@ -180,7 +186,7 @@ jobs:
               SKU="2022-datacenter-g2"
               ;;
             *)
-              echo "ERROR: Unrecognised OS '${{ matrix.os }}', cannot ensure image definition."
+              echo "ERROR: Unrecognised OS '${{ matrix.os }}'"
               exit 1
               ;;
           esac
@@ -209,7 +215,7 @@ jobs:
             ${PLAN_ARGS:-}
 
           echo "Definition '$DEF_NAME' created successfully."
-          
+
       # ──────────────────────────────────────────────────────────────────────
       # PACKER BUILD PHASE
       # ──────────────────────────────────────────────────────────────────────
@@ -220,8 +226,6 @@ jobs:
         with:
           version: 'latest'
 
-      # Windows builds need Ansible + WinRM libraries on the runner.
-      # This step is a no-op for ubuntu/rhel (those templates use SSH provisioners).
       - name: Install Ansible & WinRM dependencies (Windows only)
         if: ${{ inputs.scan_only != true && matrix.os == 'Windows Server 2022' }}
         run: |
@@ -242,10 +246,10 @@ jobs:
         if: ${{ inputs.scan_only != true }}
         run: packer init .
         working-directory: >-
-          ${{ matrix.os == 'Ubuntu 22.04' && './packer-ubuntu'
-           || matrix.os == 'RHEL 9'    && './packer-rhel'
-           || matrix.os == 'Rocky 9'    && './packer-rocky'
-           ||                           './packer-windows' }}
+          ${{ matrix.os == 'Ubuntu 22.04'        && './packer-ubuntu'
+           || matrix.os == 'RHEL 9'              && './packer-rhel'
+           || matrix.os == 'Rocky 9'             && './packer-rocky'
+           ||                                        './packer-windows' }}
 
       - name: Build Golden Image
         if: ${{ inputs.scan_only != true }}
@@ -255,20 +259,16 @@ jobs:
             -var "image_version=${{ needs.prepare.outputs.new_version }}" \
             .
         working-directory: >-
-          ${{ matrix.os == 'Ubuntu 22.04' && './packer-ubuntu'
-           || matrix.os == 'RHEL 9'    && './packer-rhel'
-           || matrix.os == 'Rocky 9'    && './packer-rocky'
-           ||                           './packer-windows' }}
+          ${{ matrix.os == 'Ubuntu 22.04'        && './packer-ubuntu'
+           || matrix.os == 'RHEL 9'              && './packer-rhel'
+           || matrix.os == 'Rocky 9'             && './packer-rocky'
+           ||                                        './packer-windows' }}
         env:
-          # Pass the image definition name for Windows so the gallery
-          # destination matches what the scan step looks up.
-          # For ubuntu/rhel, PKR_VAR_image_definition_name is ignored
-          # (those templates don't declare it).
           PKR_VAR_image_definition_name: >-
             ${{ matrix.os == 'Windows Server 2022'
              && (inputs.windows_image_name_override || 'windows-server-2022-cis')
              || '' }}
-      
+
       # ──────────────────────────────────────────────────────────────────────
       # DEPLOY EPHEMERAL VM FOR SCANNING
       # ──────────────────────────────────────────────────────────────────────
@@ -279,15 +279,12 @@ jobs:
       - name: Resolve Target Image Name
         id: image
         run: |
-          if [[ "${{ matrix.os }}" == "Ubuntu 22.04" ]]; then
-            echo "name=${{ inputs.ubuntu_image_name_override || 'ubuntu-nvme-cis' }}" >> $GITHUB_OUTPUT
-          elif [[ "${{ matrix.os }}" == "RHEL 9" ]]; then
-            echo "name=${{ inputs.rhel_image_name_override || 'rhel-nvme-cis' }}" >> $GITHUB_OUTPUT
-          elif [[ "${{ matrix.os }}" == "Rocky 9" ]]; then
-            echo "name=${{ inputs.rocky_image_name_override || 'rocky-nvme-cis' }}" >> $GITHUB_OUTPUT
-          else
-            echo "name=${{ inputs.windows_image_name_override || 'windows-server-2022-cis' }}" >> $GITHUB_OUTPUT
-          fi
+          case "${{ matrix.os }}" in
+            "Ubuntu 22.04")        echo "name=${{ inputs.ubuntu_image_name_override || 'ubuntu-nvme-cis' }}" >> $GITHUB_OUTPUT ;;
+            "RHEL 9")              echo "name=${{ inputs.rhel_image_name_override   || 'rhel-nvme-cis'   }}" >> $GITHUB_OUTPUT ;;
+            "Rocky 9")             echo "name=${{ inputs.rocky_image_name_override  || 'rocky-nvme-cis'  }}" >> $GITHUB_OUTPUT ;;
+            "Windows Server 2022") echo "name=${{ inputs.windows_image_name_override || 'windows-server-2022-cis' }}" >> $GITHUB_OUTPUT ;;
+          esac
 
       - name: Deploy Ephemeral VM
         run: |
@@ -298,12 +295,9 @@ jobs:
             --query id --output tsv)
 
           if [[ "${{ matrix.os }}" == "Windows Server 2022" ]]; then
-            # Windows VM: OpenSSH is enabled in the image so SCP works.
-            # NSG rule SSH (port 22) is opened for the scanner — the
-            # CIS WinRM-disabling controls only affect WinRM (5985/5986).
             az vm create \
               --resource-group  ${{ env.AZURE_RG }} \
-              --name            scan-${{ matrix.os }}-vm \
+              --name            scan-${{ env.VM_SLUG }}-vm \
               --image           "$IMAGE_ID" \
               --admin-username  sysadmin \
               --admin-password  "${{ env.WINDOWS_ADMIN_PASS }}" \
@@ -313,20 +307,18 @@ jobs:
               --os-disk-delete-option delete \
               --nsg-rule SSH
 
-            # Force the external Azure Firewall to allow SSH into your newly created Windows VM
             az network nsg rule create \
               --resource-group ${{ env.AZURE_RG }} \
-              --nsg-name scan-${{ matrix.os }}-vmNSG \
+              --nsg-name scan-${{ env.VM_SLUG }}-vmNSG \
               --name Allow-SSH-Pipeline \
               --priority 1010 \
               --destination-port-ranges 22 \
               --access Allow \
               --protocol Tcp
-          elif [[ "${{ matrix.os }}" == "rocky" ]]; then
-            # Rocky Linux 9 needs the plan info passed during creation
+          elif [[ "${{ matrix.os }}" == "Rocky 9" ]]; then
             az vm create \
               --resource-group  ${{ env.AZURE_RG }} \
-              --name            scan-${{ matrix.os }}-vm \
+              --name            scan-${{ env.VM_SLUG }}-vm \
               --image           "$IMAGE_ID" \
               --admin-username  sysadmin \
               --ssh-key-values  ~/.ssh/scanner_key.pub \
@@ -340,7 +332,7 @@ jobs:
           else
             az vm create \
               --resource-group  ${{ env.AZURE_RG }} \
-              --name            scan-${{ matrix.os }}-vm \
+              --name            scan-${{ env.VM_SLUG }}-vm \
               --image           "$IMAGE_ID" \
               --admin-username  sysadmin \
               --ssh-key-values  ~/.ssh/scanner_key.pub \
@@ -350,9 +342,10 @@ jobs:
               --os-disk-delete-option delete
           fi
 
+          # ✅ BUG FIX: was scan-${{ matrix.os }}-vm which produced invalid names
           VM_IP=$(az vm show -d \
             -g ${{ env.AZURE_RG }} \
-            -n scan-${{ matrix.os }}-vm \
+            -n scan-${{ env.VM_SLUG }}-vm \
             --query publicIps -o tsv)
           echo "VM_IP=$VM_IP" >> $GITHUB_ENV
           sleep 20
@@ -360,7 +353,7 @@ jobs:
       # ──────────────────────────────────────────────────────────────────────
       # WAIT FOR SSH
       # ──────────────────────────────────────────────────────────────────────
-      
+
       - name: Wait for SSH Connection
         run: |
           if [[ "${{ matrix.os }}" == "Windows Server 2022" ]]; then
@@ -377,7 +370,6 @@ jobs:
                 exit 1
               fi
             done
-            # Extra grace period for Windows to finish first-boot tasks
             sleep 30
           else
             echo "Waiting for SSH on ${{ matrix.os }} VM ($VM_IP)..."
@@ -397,41 +389,42 @@ jobs:
               fi
             done
           fi
-      
+
       # ──────────────────────────────────────────────────────────────────────
       # DIAGNOSTIC DUMP (RUNS ONLY IF SSH FAILS)
       # ──────────────────────────────────────────────────────────────────────
-      
+
       - name: Diagnose SSH state inside VM (Windows only)
         if: failure() && matrix.os == 'Windows Server 2022'
         run: |
           echo "SSH Wait loop failed! Checking sshd service state and firewall from inside the VM..."
+          # ✅ BUG FIX: was scan-${{ matrix.os }}-vm — invalid Azure resource name
           az vm run-command invoke \
             --resource-group ${{ env.AZURE_RG }} \
-            --name scan-${{ matrix.os }}-vm \
+            --name scan-${{ env.VM_SLUG }}-vm \
             --command-id RunPowerShellScript \
             --scripts "
               Write-Output '--- sshd service ---'
               Get-Service sshd | Select Name, Status, StartType | Format-List
-              
+
               Write-Output '--- Port 22 listener ---'
               netstat -ano | Select-String ':22'
-              
+
               Write-Output '--- GP Firewall rule for SSH ---'
               Get-Item 'HKLM:\SOFTWARE\Policies\Microsoft\WindowsFirewall\FirewallRules' -ErrorAction SilentlyContinue | Get-ItemProperty | Select-Object 'OpenSSH-Server-Inbound-TCP22'
-              
+
               Write-Output '--- AllowLocalPolicyMerge (should be 0 for CIS) ---'
               (Get-ItemProperty HKLM:\SOFTWARE\Policies\Microsoft\WindowsFirewall\PublicProfile).AllowLocalPolicyMerge
 
               Write-Output '=== 1. SSH SERVICE STATUS ==='
               Get-Service sshd | Select-Object Status, Name, DisplayName
-              
+
               Write-Output '=== 2. OS FIREWALL STATUS (PORT 22) ==='
               Get-NetFirewallPortFilter | Where-Object LocalPort -eq 22 | Get-NetFirewallRule | Select-Object Name, Action, Enabled
-              
+
               Write-Output '=== 3. OPENSSH EVENT LOGS ==='
               Get-EventLog -LogName Application -Source OpenSSH -Newest 5 -ErrorAction SilentlyContinue | Select-Object Message
-              
+
               Write-Output '=== 4. CIS RESTORE LOG ==='
               Get-Content C:\Windows\Setup\Scripts\RestoreCIS.log -ErrorAction SilentlyContinue
             " \
@@ -495,12 +488,6 @@ jobs:
             sysadmin@${{ env.VM_IP }}:/home/sysadmin/rocky-cis-report.html \
             ./rocky-cis-report.html
 
-      # ── Windows Compliance Scan: Cinc Auditor ────────────────────────────
-      # Cinc Auditor is the 100% free, open-source distribution of Chef InSpec.
-      # Runs from the GitHub Runner, connects via SSH, evaluates the DevSec 
-      # Windows Baseline, and generates a native HTML report natively.
-      # ─────────────────────────────────────────────────────────────────────
-
       - name: Run Cinc Auditor & Generate Multi-Format Reports (Windows)
         if: ${{ matrix.os == 'Windows Server 2022' }}
         run: |
@@ -508,8 +495,6 @@ jobs:
           curl -sL https://omnitruck.cinc.sh/install.sh | sudo bash -s -- -P cinc-auditor
 
           echo "Executing DevSec Windows Baseline over SSH..."
-          
-          # Native multi-reporting: Output HTML, JSON (for Heimdall), and CLI simultaneously
           cinc-auditor exec https://github.com/dev-sec/windows-baseline \
             -t ssh://sysadmin@${{ env.VM_IP }} \
             --password "${{ env.WINDOWS_ADMIN_PASS }}" \
@@ -527,28 +512,28 @@ jobs:
       - name: Destroy Ephemeral VM
         if: ${{ always() && env.VM_IP != '' }}
         run: |
+          # ✅ BUG FIX: was scan-${{ matrix.os }}-vm — spaces made this an invalid Azure name
           az vm delete \
             --resource-group ${{ env.AZURE_RG }} \
-            --name scan-${{ matrix.os }}-vm \
+            --name scan-${{ env.VM_SLUG }}-vm \
             --yes
 
-          # Clean up any orphaned public IPs left behind
           az network public-ip list \
             --resource-group ${{ env.AZURE_RG }} \
             --query "[?ipConfiguration==null].[name]" -o tsv \
             | xargs -I {} az network public-ip delete \
                 --resource-group ${{ env.AZURE_RG }} --name {} || true
 
-          # CRITICAL FIX: Clean up the orphaned NSG left behind by the VM
+          # ✅ BUG FIX: was scan-${{ matrix.os }}-vmNSG — same invalid name issue
           az network nsg delete \
             --resource-group ${{ env.AZURE_RG }} \
-            --name scan-${{ matrix.os }}-vmNSG || true
-            
+            --name scan-${{ env.VM_SLUG }}-vmNSG || true
+
       - name: Upload Report Artifact
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.os }}-report
+          name: ${{ env.VM_SLUG }}-report
           path: ./*-cis-report.*
 
   # ============================================================
@@ -558,9 +543,6 @@ jobs:
     name: Publish DevSecOps Release
     needs: [prepare, matrix-factory]
     runs-on: ubuntu-latest
-    # Guard: don't publish a release if any leg failed.
-    # fail-fast: false means matrix-factory 'completes' even with leg
-    # failures, so we check explicitly here to avoid tagging a broken build.
     if: ${{ !cancelled() && !failure() }}
     steps:
       - name: Download All Reports
@@ -569,7 +551,6 @@ jobs:
           path: ./reports
           merge-multiple: true
 
-      # ── Versioned release (normal build run) ────────────────────────────
       - name: Push Official Git Tag
         if: ${{ inputs.scan_only != true }}
         uses: mathieudutour/github-tag-action@v6.2
@@ -599,12 +580,9 @@ jobs:
 
             > The Windows compliance report is generated at **build time** (pre-sysprep)
             > by `run-compliance-scan.ps1` and baked into the image at `C:\CIS-Reports\`.
-            > This means the report reflects the exact hardened state of the image,
-            > not a post-deployment scan that may drift.
           fail_on_unmatched_files: false
           files: ./reports/*-cis-report.*
 
-      # ── Ad-hoc scan release (scan_only run) ──────────────────────────────
       - name: Publish Ad-Hoc Scan Report
         if: ${{ inputs.scan_only == true }}
         uses: softprops/action-gh-release@v2
@@ -617,7 +595,5 @@ jobs:
 
             > **Windows note:** The report was retrieved from the pre-baked
             > `C:\CIS-Reports\` directory inside the deployed VM.
-            > To run a live full OpenSCAP scan instead, set the repository
-            > variable `WINDOWS_RUN_FULL_SCAN=true` before triggering this workflow.
           fail_on_unmatched_files: false
           files: ./reports/*-cis-report.html
