@@ -145,7 +145,6 @@ jobs:
           # Automatically accept terms for Rocky
           az vm image terms accept --urn resf:rockylinux-x86_64:9-base:latest || true
           # Automatically accept terms for others if needed
-          az vm image terms accept --urn Canonical:0001-com-ubuntu-server-jammy:22_04-lts:latest || true
           az vm image terms accept --urn RedHat:RHEL:9-lvm || true
       # ──────────────────────────────────────────────────────────────────────
       # PACKER BUILD PHASE
