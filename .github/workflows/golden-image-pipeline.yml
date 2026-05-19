@@ -150,21 +150,21 @@ jobs:
       - name: Ensure Compute Gallery Image Definition Exists
         run: |
           case "${{ matrix.os }}" in
-            "ubuntu")
+            "Ubuntu 22.04")
               DEF_NAME="ubuntu-nvme-cis"
               OS_TYPE="Linux"
               PUBLISHER="Canonical"
               OFFER="0001-com-ubuntu-server-jammy"
               SKU="22_04-lts-gen2"
               ;;
-            "rhel")
+            "RHEL 9")
               DEF_NAME="rhel-nvme-cis"
               OS_TYPE="Linux"
               PUBLISHER="RedHat"
               OFFER="RHEL"
               SKU="9-lvm"
               ;;
-            "rocky")
+            "Rocky 9")
               DEF_NAME="rocky-nvme-cis"
               OS_TYPE="Linux"
               PUBLISHER="resf"
@@ -172,7 +172,7 @@ jobs:
               SKU="9-base"
               PLAN_ARGS="--plan-name 9-base --plan-publisher resf --plan-product rockylinux-x86_64"
               ;;
-            "windows")
+            "Windows Server 2022")
               DEF_NAME="windows-server-2022-cis"
               OS_TYPE="Windows"
               PUBLISHER="MicrosoftWindowsServer"
@@ -213,7 +213,7 @@ jobs:
       # ──────────────────────────────────────────────────────────────────────
       # PACKER BUILD PHASE
       # ──────────────────────────────────────────────────────────────────────
-            
+
       - name: Setup HashiCorp Packer
         if: ${{ inputs.scan_only != true }}
         uses: hashicorp/setup-packer@main
