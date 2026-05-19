@@ -22,6 +22,12 @@ source "azure-arm" "rocky-cis" {
   image_offer     = "rockylinux-x86_64"
   image_sku       = "9-base"
   image_version   = "latest"
+
+  plan_info {
+    plan_name      = "9-base"
+    plan_product   = "rockylinux-x86_64"
+    plan_publisher = "resf"
+  }
   
   os_type         = "Linux"
   vm_size         = var.vm_size
