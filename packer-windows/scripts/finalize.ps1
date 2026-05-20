@@ -26,9 +26,15 @@ if (!(Test-Path $scriptsPath)) { New-Item -ItemType Directory -Force -Path $scri
 secedit.exe /export /cfg "$scriptsPath\cis-secpol.inf" /quiet
 auditpol.exe /backup /file:"$scriptsPath\cis-auditpol.csv"
 
-# Re-enabling the Registry Export
-reg export "HKLM\SOFTWARE\Policies\Microsoft" "$scriptsPath\microsoft-policies.reg" /y
+# THE EXPANDED REGISTRY BACKUP (Captures everything Ansible hardened)
+reg export "HKLM\SOFTWARE\Policies" "$scriptsPath\software-policies.reg" /y
+reg export "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies" "$scriptsPath\windows-policies.reg" /y
 reg export "HKLM\SYSTEM\CurrentControlSet\Control\Lsa" "$scriptsPath\lsa-policies.reg" /y
+reg export "HKLM\SYSTEM\CurrentControlSet\Services\LanmanServer\Parameters" "$scriptsPath\lanmanserver.reg" /y
+reg export "HKLM\SYSTEM\CurrentControlSet\Services\LanmanWorkstation\Parameters" "$scriptsPath\lanmanworkstation.reg" /y
+reg export "HKLM\SYSTEM\CurrentControlSet\Services\Netlogon\Parameters" "$scriptsPath\netlogon.reg" /y
+reg export "HKLM\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters" "$scriptsPath\tcpip.reg" /y
+reg export "HKLM\SYSTEM\CurrentControlSet\Services\Tcpip6\Parameters" "$scriptsPath\tcpip6.reg" /y
 
 
 $restoreScript = "$scriptsPath\RestoreCIS.ps1"
@@ -41,11 +47,18 @@ Remove-Item -Path "C:\ProgramData\ssh\ssh_host_*_key*" -Force -ErrorAction Silen
 secedit.exe /configure /db $env:windir\security\local.sdb /cfg C:\Windows\Setup\Scripts\cis-secpol.inf /overwrite /quiet
 auditpol.exe /restore /file:C:\Windows\Setup\Scripts\cis-auditpol.csv
 
-# CRITICAL FIX: Use regedit /s to silently merge the registry and bypass locked-key aborts
-if (Test-Path "C:\Windows\Setup\Scripts\microsoft-policies.reg") { Start-Process -FilePath "regedit.exe" -ArgumentList "/s C:\Windows\Setup\Scripts\microsoft-policies.reg" -Wait }
-if (Test-Path "C:\Windows\Setup\Scripts\lsa-policies.reg") { Start-Process -FilePath "regedit.exe" -ArgumentList "/s C:\Windows\Setup\Scripts\lsa-policies.reg" -Wait }
+# CRITICAL FIX: Merge ALL the hardened registry hives back into the system
+$regFiles = @(
+    "software-policies.reg", "windows-policies.reg", "lsa-policies.reg", 
+    "lanmanserver.reg", "lanmanworkstation.reg", "netlogon.reg", 
+    "tcpip.reg", "tcpip6.reg"
+)
+foreach ($file in $regFiles) {
+    $path = "C:\Windows\Setup\Scripts\$file"
+    if (Test-Path $path) { Start-Process -FilePath "regedit.exe" -ArgumentList "/s $path" -Wait }
+}
 
-# The Sledgehammer
+# The Sledgehammer (Account Policies)
 net accounts /maxpwage:60 /minpwage:1 /uniquepw:24 /lockoutthreshold:5 /lockoutduration:15 /lockoutwindow:15 | Out-Null
 
 $laps = "HKLM:\SOFTWARE\Policies\Microsoft\Windows NT\LocalPasswords"
@@ -58,6 +71,11 @@ $rdp = "HKLM:\SOFTWARE\Policies\Microsoft\Windows NT\Terminal Services"
 if (-not (Test-Path $rdp)) { New-Item -Path $rdp -Force | Out-Null }
 Set-ItemProperty -Path $rdp -Name "MaxDisconnectionTime" -Value 60000 -Type DWord -Force
 Set-ItemProperty -Path $rdp -Name "MaxIdleTime" -Value 900000 -Type DWord -Force
+
+# Force stubborn audit policies that Sysprep mangles
+auditpol /set /subcategory:"Computer Account Management" /success:enable /failure:enable
+auditpol /set /subcategory:"Other Account Management Events" /success:enable /failure:enable
+auditpol /set /subcategory:"Security Group Management" /success:enable /failure:enable
 
 gpupdate /force
 
