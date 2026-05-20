@@ -493,9 +493,22 @@ jobs:
           echo "Installing Cinc Auditor on GitHub Runner..."
           curl -sL https://omnitruck.cinc.sh/install.sh | sudo bash -s -- -P cinc-auditor
 
-          echo "Executing Ansible-Lockdown Windows 2022 CIS Baseline over SSH..."
-          # CRITICAL FIX: Point cinc-auditor to the Windows 2022 specific profile
-          cinc-auditor exec https://github.com/ansible-lockdown/Windows-2022-CIS-Audit \
+          echo "Cloning dev-sec/windows-baseline to patch OS restrictions..."
+          git clone https://github.com/dev-sec/windows-baseline.git ./windows-baseline-patched
+          
+          echo "Patching Ruby OS matchers to allow Windows Server 2022..."
+          # 1. Update the regex matchers in the only_if blocks
+          find ./windows-baseline-patched/controls -type f -name "*.rb" -exec sed -i 's/2016|2019/2016|2019|2022/g' {} +
+          
+          # 2. Update the skip message strings so the logs look clean
+          find ./windows-baseline-patched/controls -type f -name "*.rb" -exec sed -i 's/2016, 2019/2016, 2019, 2022/g' {} +
+          
+          # 3. Update the InSpec %w array tags
+          find ./windows-baseline-patched/controls -type f -name "*.rb" -exec sed -i 's/2016 2019/2016 2019 2022/g' {} +
+
+          echo "Executing patched Windows Baseline over SSH..."
+          # CRITICAL: Point cinc-auditor to the local patched directory, not a URL
+          cinc-auditor exec ./windows-baseline-patched \
             -t ssh://sysadmin@${{ env.VM_IP }} \
             --password "${{ env.WINDOWS_ADMIN_PASS }}" \
             --backend-cache \
