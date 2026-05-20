@@ -480,7 +480,7 @@ jobs:
             sudo oscap xccdf eval \
               --profile xccdf_org.ssgproject.content_profile_cis_server_l1 \
               --report /tmp/rocky-cis-report.html \
-              /usr/share/xml/scap/ssg/content/ssg-rhel9-ds.xml || true
+              /usr/share/xml/scap/ssg/content/ssg-rl9-ds.xml || true
             sudo cp /tmp/rocky-cis-report.html /home/sysadmin/
             sudo chown sysadmin:sysadmin /home/sysadmin/rocky-cis-report.html
           EOF
