@@ -497,17 +497,20 @@ jobs:
           git clone https://github.com/dev-sec/windows-baseline.git ./windows-baseline-patched
           
           echo "Patching Ruby OS matchers to allow Windows Server 2022..."
-          # 1. Update the regex matchers in the only_if blocks
+          
+          # 1. NEW: Patch the actual Ruby execution logic!
+          find ./windows-baseline-patched/controls -type f -name "*.rb" -exec sed -i "s/(os\[:name\].include? '2019')/(os\[:name\].include? '2019') || (os\[:name\].include? '2022')/g" {} +
+          
+          # 2. Catch any regex matchers
           find ./windows-baseline-patched/controls -type f -name "*.rb" -exec sed -i 's/2016|2019/2016|2019|2022/g' {} +
           
-          # 2. Update the skip message strings so the logs look clean
+          # 3. Update the skip message strings
           find ./windows-baseline-patched/controls -type f -name "*.rb" -exec sed -i 's/2016, 2019/2016, 2019, 2022/g' {} +
           
-          # 3. Update the InSpec %w array tags
+          # 4. Update the InSpec tags
           find ./windows-baseline-patched/controls -type f -name "*.rb" -exec sed -i 's/2016 2019/2016 2019 2022/g' {} +
 
           echo "Executing patched Windows Baseline over SSH..."
-          # CRITICAL: Point cinc-auditor to the local patched directory, not a URL
           cinc-auditor exec ./windows-baseline-patched \
             -t ssh://sysadmin@${{ env.VM_IP }} \
             --password "${{ env.WINDOWS_ADMIN_PASS }}" \
