@@ -21,6 +21,8 @@ function Grant-KeyAccess {
 }
 
 Write-Output "=== Part 1: Initial Hardening ==="
+# Clean up any potential previous task attempts to avoid registration collisions
+Unregister-ScheduledTask -TaskName 'RestoreCISPolicies' -Confirm:$false -ErrorAction SilentlyContinue
 Set-Reg "HKLM:\SYSTEM\CurrentControlSet\Control\Lsa\MSV1_0" "RestrictReceivingNTLMTraffic" 2
 
 # Backup CIS policy state
@@ -49,6 +51,8 @@ $restoreScript = "$scriptsPath\RestoreCIS.ps1"
 @'
 Start-Transcript -Path "C:\Windows\Setup\Scripts\RestoreCIS.log"
 
+Unregister-ScheduledTask -TaskName 'RestoreCISPolicies' -Confirm:$false -ErrorAction SilentlyContinue
+
 # INTEGRATED: Grant permissions to the most common block-point
 $sysPolicy = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System"
 Grant-KeyAccess $sysPolicy
@@ -70,7 +74,6 @@ Start-Process -FilePath "C:\Windows\System32\OpenSSH\ssh-keygen.exe" -ArgumentLi
 Set-Service -Name sshd -StartupType Automatic
 Start-Service -Name sshd
 
-Unregister-ScheduledTask -TaskName 'RestoreCISPolicies' -Confirm:$false
 Stop-Transcript
 '@ | Out-File -FilePath $restoreScript -Encoding ASCII -Force
 
