@@ -1,5 +1,5 @@
 # =============================================================================
-# finalize.ps1 - Hardened Restoration
+# finalize.ps1 - Corrected Registry Access & Restoration
 # =============================================================================
 
 function Set-Reg {
@@ -8,7 +8,7 @@ function Set-Reg {
     Set-ItemProperty -Path $Path -Name $Name -Value $Value -Type $Type -Force
 }
 
-# Grant SYSTEM full control over registry keys locked by TrustedInstaller
+# CORRECTED: RegistryAccessRule for HKLM keys
 function Grant-KeyAccess {
     param($Path)
     if (Test-Path $Path) {
@@ -49,22 +49,23 @@ $restoreScript = "$scriptsPath\RestoreCIS.ps1"
 @'
 Start-Transcript -Path "C:\Windows\Setup\Scripts\RestoreCIS.log"
 
-# 1. Take ownership and restore keys
-Grant-KeyAccess "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System"
+# INTEGRATED: Grant permissions to the most common block-point
+$sysPolicy = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System"
+Grant-KeyAccess $sysPolicy
 
-# 2. Merge Registry Hives
+# Merge Registry Hives
 Get-ChildItem "C:\Windows\Setup\Scripts\*.reg" | ForEach-Object {
     Start-Process -FilePath "regedit.exe" -ArgumentList "/s $($_.FullName)" -Wait
 }
 
-# 3. Force-Apply Security Policies (Clear Sysprep interference)
+# Force-Apply Security Policies
 secedit.exe /configure /db $env:windir\security\local.sdb /cfg C:\Windows\Setup\Scripts\cis-secpol.inf /overwrite /quiet
 auditpol.exe /restore /file:C:\Windows\Setup\Scripts\cis-auditpol.csv
 
-# 4. Enforce Policy Refresh
+# Enforce Policy Refresh
 gpupdate /force /boot
 
-# 5. Services
+# Start OpenSSH
 Start-Process -FilePath "C:\Windows\System32\OpenSSH\ssh-keygen.exe" -ArgumentList "-A" -NoNewWindow -Wait
 Set-Service -Name sshd -StartupType Automatic
 Start-Service -Name sshd
