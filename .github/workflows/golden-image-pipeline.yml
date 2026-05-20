@@ -342,7 +342,6 @@ jobs:
               --os-disk-delete-option delete
           fi
 
-          # ✅ BUG FIX: was scan-${{ matrix.os }}-vm which produced invalid names
           VM_IP=$(az vm show -d \
             -g ${{ env.AZURE_RG }} \
             -n scan-${{ env.VM_SLUG }}-vm \
@@ -398,7 +397,7 @@ jobs:
         if: failure() && matrix.os == 'Windows Server 2022'
         run: |
           echo "SSH Wait loop failed! Checking sshd service state and firewall from inside the VM..."
-          # ✅ BUG FIX: was scan-${{ matrix.os }}-vm — invalid Azure resource name
+
           az vm run-command invoke \
             --resource-group ${{ env.AZURE_RG }} \
             --name scan-${{ env.VM_SLUG }}-vm \
@@ -494,8 +493,9 @@ jobs:
           echo "Installing Cinc Auditor on GitHub Runner..."
           curl -sL https://omnitruck.cinc.sh/install.sh | sudo bash -s -- -P cinc-auditor
 
-          echo "Executing DevSec Windows Baseline over SSH..."
-          cinc-auditor exec https://github.com/dev-sec/windows-baseline \
+          echo "Executing Ansible-Lockdown Windows 2022 CIS Baseline over SSH..."
+          # CRITICAL FIX: Point cinc-auditor to the Windows 2022 specific profile
+          cinc-auditor exec https://github.com/ansible-lockdown/Windows-2022-CIS-Audit \
             -t ssh://sysadmin@${{ env.VM_IP }} \
             --password "${{ env.WINDOWS_ADMIN_PASS }}" \
             --backend-cache \
