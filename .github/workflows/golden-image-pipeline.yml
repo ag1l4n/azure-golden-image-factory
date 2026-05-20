@@ -556,7 +556,8 @@ jobs:
         uses: mathieudutour/github-tag-action@v6.2
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          custom_tag: v${{ needs.prepare.outputs.new_version }}
+          # REMOVED the 'v' here, the action will auto-prepend it!
+          custom_tag: ${{ needs.prepare.outputs.new_version }}
 
       - name: Publish Golden Image Release
         if: ${{ inputs.scan_only != true }}
