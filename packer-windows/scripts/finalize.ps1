@@ -51,28 +51,17 @@ $restoreScript = "$scriptsPath\RestoreCIS.ps1"
 @'
 Start-Transcript -Path "C:\Windows\Setup\Scripts\RestoreCIS.log"
 
-Unregister-ScheduledTask -TaskName 'RestoreCISPolicies' -Confirm:$false -ErrorAction SilentlyContinue
+# 1. Apply Security Policy (The CIS .inf file)
+secedit.exe /configure /db $env:windir\security\local.sdb /cfg C:\Windows\Setup\Scripts\CIS-Gold-State.inf /overwrite /quiet
 
-# INTEGRATED: Grant permissions to the most common block-point
-$sysPolicy = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System"
-Grant-KeyAccess $sysPolicy
+# 2. Apply Audit Policy
+auditpol.exe /restore /file:C:\Windows\Setup\Scripts\CIS-Auditpol.csv
 
-# Merge Registry Hives
-Get-ChildItem "C:\Windows\Setup\Scripts\*.reg" | ForEach-Object {
-    Start-Process -FilePath "regedit.exe" -ArgumentList "/s $($_.FullName)" -Wait
-}
+# 3. Enforce Registry State (CIS-Policies.reg)
+regedit.exe /s C:\Windows\Setup\Scripts\CIS-Policies.reg
 
-# Force-Apply Security Policies
-secedit.exe /configure /db $env:windir\security\local.sdb /cfg C:\Windows\Setup\Scripts\cis-secpol.inf /overwrite /quiet
-auditpol.exe /restore /file:C:\Windows\Setup\Scripts\cis-auditpol.csv
-
-# Enforce Policy Refresh
+# 4. Refresh & Lock
 gpupdate /force /boot
-
-# Start OpenSSH
-Start-Process -FilePath "C:\Windows\System32\OpenSSH\ssh-keygen.exe" -ArgumentList "-A" -NoNewWindow -Wait
-Set-Service -Name sshd -StartupType Automatic
-Start-Service -Name sshd
 
 Stop-Transcript
 '@ | Out-File -FilePath $restoreScript -Encoding ASCII -Force
