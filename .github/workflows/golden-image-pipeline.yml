@@ -514,6 +514,8 @@ jobs:
           cinc-auditor exec ./windows-baseline-patched \
             -t ssh://sysadmin@${{ env.VM_IP }} \
             --password "${{ env.WINDOWS_ADMIN_PASS }}" \
+            --input server_role=member_server \
+            --input domain_joined=false \
             --backend-cache \
             --reporter html:./windows-cis-report.html json:./windows-cis-report.json cli || true
 
