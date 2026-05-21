@@ -1,5 +1,5 @@
 # =============================================================================
-# finalize.ps1
+# finalize.ps1 - Corrected Registry Access & Restoration
 # =============================================================================
 
 function Set-Reg {
@@ -8,87 +8,88 @@ function Set-Reg {
     Set-ItemProperty -Path $Path -Name $Name -Value $Value -Type $Type -Force
 }
 
-Write-Output "=== Part 1: GP-level Firewall Rule for SSH ==="
+# CORRECTED: RegistryAccessRule for HKLM keys
+function Grant-KeyAccess {
+    param($Path)
+    if (Test-Path $Path) {
+        $acl = Get-Acl $Path
+        $permission = "NT AUTHORITY\SYSTEM","FullControl","Allow"
+        $accessRule = New-Object System.Security.AccessControl.RegistryAccessRule($permission)
+        $acl.SetAccessRule($accessRule)
+        Set-Acl $Path $acl
+    }
+}
+
+Write-Output "=== Part 1: Initial Hardening ==="
+# Clean up any potential previous task attempts to avoid registration collisions
+Unregister-ScheduledTask -TaskName 'RestoreCISPolicies' -Confirm:$false -ErrorAction SilentlyContinue
 Set-Reg "HKLM:\SYSTEM\CurrentControlSet\Control\Lsa\MSV1_0" "RestrictReceivingNTLMTraffic" 2
 
-$gpFWPath = "HKLM:\SOFTWARE\Policies\Microsoft\WindowsFirewall\FirewallRules"
-if (-not (Test-Path $gpFWPath)) { New-Item -Path $gpFWPath -Force | Out-Null }
-Set-ItemProperty -Path $gpFWPath `
-    -Name "OpenSSH-Server-Inbound-TCP22" `
-    -Value "v2.31|Action=Allow|Active=TRUE|Dir=In|Protocol=6|LPort=22|Name=OpenSSH Server (sshd)|Desc=OpenSSH Server for pipeline scanning|" `
-    -Type String -Force
-
-
-Write-Output "=== Part 2: Backing up CIS policy state ==="
+# Backup CIS policy state
 $scriptsPath = "C:\Windows\Setup\Scripts"
 if (!(Test-Path $scriptsPath)) { New-Item -ItemType Directory -Force -Path $scriptsPath | Out-Null }
 
 secedit.exe /export /cfg "$scriptsPath\cis-secpol.inf" /quiet
 auditpol.exe /backup /file:"$scriptsPath\cis-auditpol.csv"
 
-# Re-enabling the Registry Export
-reg export "HKLM\SOFTWARE\Policies\Microsoft" "$scriptsPath\microsoft-policies.reg" /y
-reg export "HKLM\SYSTEM\CurrentControlSet\Control\Lsa" "$scriptsPath\lsa-policies.reg" /y
+# Export hives
+$hives = @(
+    "HKLM\SOFTWARE\Policies", "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies",
+    "HKLM\SYSTEM\CurrentControlSet\Control\Lsa", "HKLM\SYSTEM\CurrentControlSet\Services\LanmanServer\Parameters",
+    "HKLM\SYSTEM\CurrentControlSet\Services\LanmanWorkstation\Parameters", "HKLM\SYSTEM\CurrentControlSet\Services\Netlogon\Parameters",
+    "HKLM\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters"
+)
+foreach ($hive in $hives) {
+    $filename = ($hive -replace '\\', '_') + ".reg"
+    reg export $hive "$scriptsPath\$filename" /y
+}
 
-
+# =============================================================================
+# RestoreCIS.ps1 (The Boot-time engine)
+# =============================================================================
 $restoreScript = "$scriptsPath\RestoreCIS.ps1"
 @'
 Start-Transcript -Path "C:\Windows\Setup\Scripts\RestoreCIS.log"
 
-Remove-Item -Path "C:\ProgramData\ssh\ssh_host_*_key*" -Force -ErrorAction SilentlyContinue
+Unregister-ScheduledTask -TaskName 'RestoreCISPolicies' -Confirm:$false -ErrorAction SilentlyContinue
 
-# Restore security and audit policies natively
+# INTEGRATED: Grant permissions to the most common block-point
+$sysPolicy = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System"
+Grant-KeyAccess $sysPolicy
+
+# Merge Registry Hives
+Get-ChildItem "C:\Windows\Setup\Scripts\*.reg" | ForEach-Object {
+    Start-Process -FilePath "regedit.exe" -ArgumentList "/s $($_.FullName)" -Wait
+}
+
+# Force-Apply Security Policies
 secedit.exe /configure /db $env:windir\security\local.sdb /cfg C:\Windows\Setup\Scripts\cis-secpol.inf /overwrite /quiet
 auditpol.exe /restore /file:C:\Windows\Setup\Scripts\cis-auditpol.csv
 
-# CRITICAL FIX: Use regedit /s to silently merge the registry and bypass locked-key aborts
-if (Test-Path "C:\Windows\Setup\Scripts\microsoft-policies.reg") { Start-Process -FilePath "regedit.exe" -ArgumentList "/s C:\Windows\Setup\Scripts\microsoft-policies.reg" -Wait }
-if (Test-Path "C:\Windows\Setup\Scripts\lsa-policies.reg") { Start-Process -FilePath "regedit.exe" -ArgumentList "/s C:\Windows\Setup\Scripts\lsa-policies.reg" -Wait }
-
-# The Sledgehammer
-net accounts /maxpwage:60 /minpwage:1 /uniquepw:24 /lockoutthreshold:5 /lockoutduration:15 /lockoutwindow:15 | Out-Null
-
-$laps = "HKLM:\SOFTWARE\Policies\Microsoft\Windows NT\LocalPasswords"
-if (-not (Test-Path $laps)) { New-Item -Path $laps -Force | Out-Null }
-Set-ItemProperty -Path $laps -Name "PasswordComplexity" -Value 4 -Type DWord -Force
-Set-ItemProperty -Path $laps -Name "PasswordLength" -Value 14 -Type DWord -Force
-Set-ItemProperty -Path $laps -Name "PasswordAgeDays" -Value 30 -Type DWord -Force
-
-$rdp = "HKLM:\SOFTWARE\Policies\Microsoft\Windows NT\Terminal Services"
-if (-not (Test-Path $rdp)) { New-Item -Path $rdp -Force | Out-Null }
-Set-ItemProperty -Path $rdp -Name "MaxDisconnectionTime" -Value 60000 -Type DWord -Force
-Set-ItemProperty -Path $rdp -Name "MaxIdleTime" -Value 900000 -Type DWord -Force
-
-gpupdate /force
+# Enforce Policy Refresh
+gpupdate /force /boot
 
 # Start OpenSSH
 Start-Process -FilePath "C:\Windows\System32\OpenSSH\ssh-keygen.exe" -ArgumentList "-A" -NoNewWindow -Wait
-Set-Service -Name sshd -StartupType Automatic -ErrorAction SilentlyContinue
-Start-Service -Name sshd -ErrorAction SilentlyContinue
+Set-Service -Name sshd -StartupType Automatic
+Start-Service -Name sshd
 
-Unregister-ScheduledTask -TaskName 'RestoreCISPolicies' -Confirm:$false
 Stop-Transcript
 '@ | Out-File -FilePath $restoreScript -Encoding ASCII -Force
 
-$action    = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument "-ExecutionPolicy Bypass -WindowStyle Hidden -File $restoreScript"
-$trigger   = New-ScheduledTaskTrigger -AtStartup
+# Register Task
+$action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument "-ExecutionPolicy Bypass -File $restoreScript"
+$trigger = New-ScheduledTaskTrigger -AtStartup
 $principal = New-ScheduledTaskPrincipal -UserId "NT AUTHORITY\SYSTEM" -LogonType ServiceAccount -RunLevel Highest
-$settings  = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
-Register-ScheduledTask -TaskName 'RestoreCISPolicies' -Action $action -Trigger $trigger -Principal $principal -Settings $settings -Force
+Register-ScheduledTask -TaskName 'RestoreCISPolicies' -Action $action -Trigger $trigger -Principal $principal -Force
 
+# Finalize WinRM
+Write-Output "=== Part 3: WinRM Lockdown ==="
+$winrmPaths = @("HKLM:\SOFTWARE\Policies\Microsoft\Windows\WinRM\Client", "HKLM:\SOFTWARE\Policies\Microsoft\Windows\WinRM\Service")
+foreach ($path in $winrmPaths) {
+    Set-Reg $path "AllowBasic" 0
+    Set-Reg $path "AllowUnencryptedTraffic" 0
+}
 
-Write-Output "=== Part 3: WinRM CIS controls ==="
-Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\Windows\WinRM\Client" "AllowBasic" 0
-Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\Windows\WinRM\Client" "AllowUnencryptedTraffic" 0
-Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\Windows\WinRM\Client" "AllowDigest" 0
-Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\Windows\WinRM\Service" "AllowBasic" 0
-Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\Windows\WinRM\Service" "AllowAutoConfig" 0
-Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\Windows\WinRM\Service" "AllowUnencryptedTraffic" 0
-Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\Windows\WinRM\Service" "DisableRunAs" 1
-Set-Reg "HKLM:\SOFTWARE\Policies\Microsoft\Windows\WinRM\Service\WinRS" "AllowRemoteShellAccess" 0
-
-Write-Output "=== Part 4: Sysprep ==="
-$uacPath = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System"
-Set-ItemProperty -Path $uacPath -Name "LocalAccountTokenFilterPolicy" -Value 0 -Type DWord -Force
-
-Start-Process -FilePath "$env:SystemRoot\System32\Sysprep\Sysprep.exe" -ArgumentList "/oobe /generalize /quiet /quit /mode:vm" -Wait -NoNewWindow
+# Sysprep
+Start-Process -FilePath "$env:SystemRoot\System32\Sysprep\Sysprep.exe" -ArgumentList "/oobe /generalize /quiet /quit /mode:vm" -Wait
