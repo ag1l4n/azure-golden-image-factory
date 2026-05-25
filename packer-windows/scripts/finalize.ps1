@@ -24,7 +24,10 @@ Write-Output "=== Part 1: Initial Hardening ==="
 Unregister-ScheduledTask -TaskName 'RestoreCISPolicies' -Confirm:$false -ErrorAction SilentlyContinue
 Set-Reg "HKLM:\SYSTEM\CurrentControlSet\Control\Lsa\MSV1_0" "RestrictReceivingNTLMTraffic" 2
 
-# (Export logic omitted for brevity, keep your existing export block here)
+$scriptsPath = "C:\Windows\Setup\Scripts"
+if (!(Test-Path $scriptsPath)) { 
+    New-Item -ItemType Directory -Force -Path $scriptsPath | Out-Null 
+}
 
 # =============================================================================
 # RestoreCIS.ps1 (The Boot-time engine)
