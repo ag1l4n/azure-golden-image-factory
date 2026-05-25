@@ -40,28 +40,6 @@ packer {
 # =============================================================================
 # Variables — names match PKR_VAR_* set in golden-image-pipeline.yml env block
 # =============================================================================
-
-variable "subscription_id" {
-  type      = string
-  sensitive = true
-}
-
-variable "tenant_id" {
-  type        = string
-  sensitive   = true
-  description = "Azure Tenant ID. Set PKR_VAR_tenant_id or AZURE_TENANT_ID in CI."
-}
-
-variable "client_id" {
-  type      = string
-  sensitive = true
-}
-
-variable "client_secret" {
-  type      = string
-  sensitive = true
-}
-
 # Matches PKR_VAR_resource_group set in the pipeline env block.
 # Used for both the ephemeral build VM and the Compute Gallery — same RG as
 # Ubuntu/RHEL builds for consistency.
@@ -162,10 +140,7 @@ locals {
 
 source "azure-arm" "win2022_cis_l1" {
   # Auth
-  subscription_id = var.subscription_id
-  tenant_id       = var.tenant_id
-  client_id       = var.client_id
-  client_secret   = var.client_secret
+  use_azure_cli_auth = true
 
   # Build environment — same resource group as the gallery for simplicity
   build_resource_group_name = var.resource_group

@@ -57,4 +57,11 @@ build {
       "--extra-vars", "ansible_python_interpreter=/usr/bin/python3"
     ]
   }
+  provisioner "shell" {
+    execute_command = "chmod +x {{ .Path }}; {{ .Vars }} sudo -E sh '{{ .Path }}'"
+    inline = [
+      "/usr/sbin/waagent -force -deprovision+user && export HISTSIZE=0 && sync"
+    ]
+    inline_shebang = "/bin/sh -x"
+  }
 }
