@@ -244,6 +244,14 @@ build {
     restart_check_command = "powershell -command \"& {Write-Output 'restarted'}\""
   }
 
+  # Step 4.5 — Inject the extracted CIS Gold Standard configuration files.
+  # This makes the .inf, .csv, and .reg files available to finalize.ps1
+  # at C:\Windows\Setup\Scripts\ on the ephemeral VM.
+  provisioner "file" {
+    source      = "${path.root}/files/"
+    destination = "C:/Windows/Setup/Scripts/"
+  }
+
   # Step 5 — Apply WinRM-disabling CIS controls via direct registry writes.
   # These two controls cannot run through Ansible because they cut the session.
   # Done last, via PowerShell, with no active WinRM dependency.

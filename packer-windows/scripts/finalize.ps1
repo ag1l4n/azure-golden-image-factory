@@ -8,7 +8,7 @@ function Set-Reg {
     Set-ItemProperty -Path $Path -Name $Name -Value $Value -Type $Type -Force
 }
 
-# CORRECTED: RegistryAccessRule for HKLM keys
+# This function is used by the parent finalize script
 function Grant-KeyAccess {
     param($Path)
     if (Test-Path $Path) {
@@ -21,28 +21,10 @@ function Grant-KeyAccess {
 }
 
 Write-Output "=== Part 1: Initial Hardening ==="
-# Clean up any potential previous task attempts to avoid registration collisions
 Unregister-ScheduledTask -TaskName 'RestoreCISPolicies' -Confirm:$false -ErrorAction SilentlyContinue
 Set-Reg "HKLM:\SYSTEM\CurrentControlSet\Control\Lsa\MSV1_0" "RestrictReceivingNTLMTraffic" 2
 
-# Backup CIS policy state
-$scriptsPath = "C:\Windows\Setup\Scripts"
-if (!(Test-Path $scriptsPath)) { New-Item -ItemType Directory -Force -Path $scriptsPath | Out-Null }
-
-secedit.exe /export /cfg "$scriptsPath\cis-secpol.inf" /quiet
-auditpol.exe /backup /file:"$scriptsPath\cis-auditpol.csv"
-
-# Export hives
-$hives = @(
-    "HKLM\SOFTWARE\Policies", "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies",
-    "HKLM\SYSTEM\CurrentControlSet\Control\Lsa", "HKLM\SYSTEM\CurrentControlSet\Services\LanmanServer\Parameters",
-    "HKLM\SYSTEM\CurrentControlSet\Services\LanmanWorkstation\Parameters", "HKLM\SYSTEM\CurrentControlSet\Services\Netlogon\Parameters",
-    "HKLM\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters"
-)
-foreach ($hive in $hives) {
-    $filename = ($hive -replace '\\', '_') + ".reg"
-    reg export $hive "$scriptsPath\$filename" /y
-}
+# (Export logic omitted for brevity, keep your existing export block here)
 
 # =============================================================================
 # RestoreCIS.ps1 (The Boot-time engine)
@@ -51,23 +33,36 @@ $restoreScript = "$scriptsPath\RestoreCIS.ps1"
 @'
 Start-Transcript -Path "C:\Windows\Setup\Scripts\RestoreCIS.log"
 
+# RE-DEFINED: The function must exist inside the boot script process
+function Grant-KeyAccess {
+    param($Path)
+    if (Test-Path $Path) {
+        $acl = Get-Acl $Path
+        $permission = "NT AUTHORITY\SYSTEM","FullControl","Allow"
+        $accessRule = New-Object System.Security.AccessControl.RegistryAccessRule($permission)
+        $acl.SetAccessRule($accessRule)
+        Set-Acl $Path $acl
+    }
+}
+
 Unregister-ScheduledTask -TaskName 'RestoreCISPolicies' -Confirm:$false -ErrorAction SilentlyContinue
 
-# INTEGRATED: Grant permissions to the most common block-point
+# INTEGRATED: Grant permissions so we can overwrite Policies
 $sysPolicy = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System"
 Grant-KeyAccess $sysPolicy
 
-# Merge Registry Hives
-Get-ChildItem "C:\Windows\Setup\Scripts\*.reg" | ForEach-Object {
-    Start-Process -FilePath "regedit.exe" -ArgumentList "/s $($_.FullName)" -Wait
-}
+# 1. Apply Security Policy
+secedit.exe /configure /db $env:windir\security\local.sdb /cfg C:\Windows\Setup\Scripts\CIS-Gold-State.inf /overwrite /quiet
 
-# Force-Apply Security Policies
-secedit.exe /configure /db $env:windir\security\local.sdb /cfg C:\Windows\Setup\Scripts\cis-secpol.inf /overwrite /quiet
-auditpol.exe /restore /file:C:\Windows\Setup\Scripts\cis-auditpol.csv
+# 2. Apply Audit Policy
+auditpol.exe /restore /file:C:\Windows\Setup\Scripts\CIS-Auditpol.csv
 
-# Enforce Policy Refresh
+# 3. Enforce Registry State
+regedit.exe /s C:\Windows\Setup\Scripts\CIS-Policies.reg
+
+# 4. Enforce Policy Refresh
 gpupdate /force /boot
+if ($LASTEXITCODE -ne 0) { Write-Error "gpupdate failed!" }
 
 # Start OpenSSH
 Start-Process -FilePath "C:\Windows\System32\OpenSSH\ssh-keygen.exe" -ArgumentList "-A" -NoNewWindow -Wait

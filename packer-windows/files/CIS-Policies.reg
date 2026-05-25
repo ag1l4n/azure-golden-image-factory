@@ -1,0 +1,105 @@
+soft\Windows NT\Printers]
+"DisableWebPnPDownload"=dword:00000001
+"RedirectionGuardPolicy"=dword:00000001
+"CopyFilesPolicy"=dword:00000001
+"RegisterSpoolerRemoteRpcEndPoint"=dword:00000002
+"DisableHTTPPrinting"=dword:00000001
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Microsoft\Windows NT\Printers\PointAndPrint]
+"RestrictDriverInstallationToAdministrators"=dword:00000001
+"Restricted"=dword:00000001
+"TrustedServers"=dword:00000000
+"ServerList"=""
+"InForest"=dword:00000000
+"NoWarningNoElevationOnInstall"=dword:00000000
+"UpdatePromptSettings"=dword:00000000
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Microsoft\Windows NT\Printers\RPC]
+"RpcUseNamedPipeProtocol"=dword:00000000
+"RpcAuthentication"=dword:00000000
+"RpcProtocols"=dword:00000005
+"ForceKerberosForRpc"=dword:00000000
+"RpcTcpPort"=dword:00000000
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Microsoft\Windows NT\Rpc]
+"EnableAuthEpResolution"=dword:00000001
+"RestrictRemoteClients"=dword:00000001
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Microsoft\Windows NT\Terminal Services]
+"KeepAliveEnable"=dword:00000001
+"KeepAliveInterval"=dword:00000001
+"fAllowToGetHelp"=dword:00000000
+"fAllowUnsolicited"=dword:00000000
+"DisablePasswordSaving"=dword:00000001
+"fDisableCdm"=dword:00000001
+"MinEncryptionLevel"=dword:00000003
+"fPromptForPassword"=dword:00000001
+"fEncryptRPCTraffic"=dword:00000001
+"SecurityLayer"=dword:00000002
+"UserAuthentication"=dword:00000001
+"DeleteTempDirsOnExit"=dword:00000001
+"PerSessionTempDir"=dword:00000001
+"fSingleSessionPerUser"=dword:00000001
+"fDisableCcm"=dword:00000001
+"fDisableLPT"=dword:00000001
+"fDisablePNPRedir"=dword:00000001
+"MaxIdleTime"=dword:000dbba0
+"MaxDisconnectionTime"=dword:0000ea60
+"fDisableLocationRedir"=dword:00000001
+"EnableUiaRedirection"=dword:00000000
+"fDisableWebAuthn"=dword:00000001
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Microsoft\Windows NT\Terminal Services\Client]
+"fEnableUsbBlockDeviceBySetupClass"=dword:00000001
+"fEnableUsbNoAckIsochWriteToDevice"=dword:00000050
+"fEnableUsbSelectDeviceByInterface"=dword:00000001
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Microsoft\Windows NT\Terminal Services\Client\UsbBlockDeviceBySetupClasses]
+"1000"="{3376f4ce-ff8d-40a2-a80f-bb4359d1415c}"
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Microsoft\Windows NT\Terminal Services\Client\UsbSelectDeviceByInterfaces]
+"1000"="{6bdd1fc6-810f-11d0-bec7-08002be2092f}"
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Microsoft\Windows NT\Windows File Protection]
+"KnownDllList"="nlhtml.dll"
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Microsoft\WindowsFirewall]
+"PolicyVersion"=dword:0000021f
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Microsoft\WindowsFirewall\DomainProfile]
+"EnableFirewall"=dword:00000001
+"DisableNotifications"=dword:00000001
+"DefaultInboundAction"=dword:00000001
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Microsoft\WindowsFirewall\DomainProfile\Logging]
+"LogDroppedPackets"=dword:00000001
+"LogSuccessfulConnections"=dword:00000001
+"LogFilePath"="%systemroot%\\system32\\LogFiles\\Firewall\\domainfw.log"
+"LogFileSize"=dword:00004000
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Microsoft\WindowsFirewall\PrivateProfile]
+"DisableNotifications"=dword:00000001
+"EnableFirewall"=dword:00000001
+"DefaultInboundAction"=dword:00000001
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Microsoft\WindowsFirewall\PrivateProfile\Logging]
+"LogFilePath"="%systemroot%\\system32\\logfiles\\firewall\\privatefw.log"
+"LogFileSize"=dword:00004000
+"LogDroppedPackets"=dword:00000001
+"LogSuccessfulConnections"=dword:00000001
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Microsoft\WindowsFirewall\PublicProfile]
+"DisableNotifications"=dword:00000001
+"EnableFirewall"=dword:00000001
+"DefaultInboundAction"=dword:00000001
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Microsoft\WindowsFirewall\PublicProfile\Logging]
+"LogFilePath"="%systemroot%\\system32\\logfiles\\firewall\\publicfw.log"
+"LogFileSize"=dword:00004000
+"LogDroppedPackets"=dword:00000001
+"LogSuccessfulConnections"=dword:00000001
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Microsoft\WindowsInkWorkspace]
+"AllowWindowsInkWorkspace"=dword:00000001
+"AllowSuggestedAppsInWindowsInkWorkspace"=dword:00000000
+
