@@ -143,6 +143,7 @@ source "azure-arm" "win2022_cis_l1" {
   use_azure_cli_auth = true
 
   # Build environment — same resource group as the gallery for simplicity
+  subscription_id           = var.subscription_id
   build_resource_group_name = var.resource_group
   vm_size                   = var.vm_size
   os_disk_size_gb           = var.os_disk_size_gb

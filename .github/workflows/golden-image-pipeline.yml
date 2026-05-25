@@ -43,6 +43,7 @@ on:
         type: string
 
 permissions:
+  id-token: write
   contents: write
 
 jobs:
@@ -125,9 +126,11 @@ jobs:
         uses: actions/checkout@v3
 
       - name: Authenticate to Azure
-        uses: azure/login@v1
+        uses: azure/login@v3
         with:
-          creds: ${{ secrets.AZURE_CREDENTIALS }}
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
       # ── BUG FIX: Resolve a short slug for use in Azure resource names ────
       # matrix.os contains spaces/dots ("Ubuntu 22.04", "RHEL 9", etc.)
