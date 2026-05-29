@@ -192,17 +192,6 @@ build {
     script = "${path.root}/../packer-windows/scripts/bootstrap-winrm.ps1"
   }
 
-  # Step 2 — Apply Patch Tuesday updates before hardening.
-  # CIS scan results are meaningless against an unpatched baseline.
-  provisioner "windows-update" {
-    search_criteria = "IsInstalled=0"
-    filters = [
-      "exclude:$_.Title -like '*Preview*'",
-      "include:$true",
-    ]
-    restart_timeout = "120m"
-  }
-
   # Step 3 — CIS L1 main hardening pass.
   # --skip-tags winrm_connectivity defers the two controls that would kill
   # the Ansible WinRM connection (18.9.102.2.2 and 18.9.103.1).
