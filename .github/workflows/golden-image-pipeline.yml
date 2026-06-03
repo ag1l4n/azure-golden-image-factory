@@ -256,7 +256,7 @@ jobs:
           ansible-galaxy install -r requirements.yml --roles-path roles/
 
       - name: Packer Init
-        if: ${{ inputs.scan_only != 'true' }}
+        if: ${{ inputs.scan_only != true }}
         run: packer init .
         working-directory: >-
           ${{ matrix.os == 'Ubuntu 22.04'        && './packer-ubuntu'
@@ -273,7 +273,7 @@ jobs:
       # Packer itself uses PKR_VAR_client_* and does NOT depend on this
       # session — this step is purely to keep az cli working post-build.
       - name: Re-authenticate to Azure (Windows — pre-build refresh)
-        if: ${{ inputs.scan_only != 'true' && matrix.os == 'Windows Server 2022' }}
+        if: ${{ inputs.scan_only != true && matrix.os == 'Windows Server 2022' }}
         uses: azure/login@v3
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
@@ -289,7 +289,7 @@ jobs:
       #          those templates use use_azure_cli_auth = true and complete
       #          well within the OIDC token lifetime.
       - name: Build Golden Image (Linux)
-        if: ${{ inputs.scan_only != 'true' && matrix.os != 'Windows Server 2022' }}
+        if: ${{ inputs.scan_only != true && matrix.os != 'Windows Server 2022' }}
         run: |
           packer build \
             -force \
@@ -301,7 +301,7 @@ jobs:
            ||                                 './packer-rocky' }}
 
       - name: Build Golden Image (Windows)
-        if: ${{ inputs.scan_only != 'true' && matrix.os == 'Windows Server 2022' }}
+        if: ${{ inputs.scan_only != true && matrix.os == 'Windows Server 2022' }}
         run: |
           packer build \
             -force \
@@ -610,14 +610,14 @@ jobs:
           merge-multiple: true
 
       - name: Push Official Git Tag
-        if: ${{ inputs.scan_only != 'true' }}
+        if: ${{ inputs.scan_only != true }}
         uses: mathieudutour/github-tag-action@v6.2
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           custom_tag: ${{ needs.prepare.outputs.new_version }}
 
       - name: Publish Golden Image Release
-        if: ${{ inputs.scan_only != 'true' }}
+        if: ${{ inputs.scan_only != true }}
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ needs.prepare.outputs.new_version }}
