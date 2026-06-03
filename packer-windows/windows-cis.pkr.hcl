@@ -214,11 +214,7 @@ build {
     elevated_password = build.Password
     inline = [
       "Write-Output 'Installing OpenSSH Server...'",
-      "Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0",
-      "Write-Output 'Generating SSH Host Keys...'",
-      "Start-Process -FilePath 'C:\\Windows\\System32\\OpenSSH\\ssh-keygen.exe' -ArgumentList '-A' -NoNewWindow -Wait",
-      "Set-Service -Name sshd -StartupType Automatic",
-      "Start-Service -Name sshd"
+      "Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0"
     ]
   }
 
