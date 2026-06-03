@@ -128,6 +128,7 @@ jobs:
       # variables — Packer silently skips unrecognised PKR_VAR_* values.
       PKR_VAR_client_id:     ${{ secrets.AZURE_CLIENT_ID }}
       PKR_VAR_client_secret: ${{ secrets.AZURE_CLIENT_SECRET }}
+      PKR_VAR_tenant_id:     ${{ secrets.AZURE_TENANT_ID }}
 
     steps:
       - name: Checkout Code
@@ -143,6 +144,7 @@ jobs:
         uses: azure/login@v3
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
       # ── BUG FIX: Resolve a short slug for use in Azure resource names ────
@@ -275,6 +277,7 @@ jobs:
         uses: azure/login@v3
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
       # ── Build Golden Image ────────────────────────────────────────────────
@@ -306,6 +309,7 @@ jobs:
             -var "image_definition_name=${{ inputs.windows_image_name_override || 'windows-server-2022-cis' }}" \
             -var "client_id=${{ secrets.AZURE_CLIENT_ID }}" \
             -var "client_secret=${{ secrets.AZURE_CLIENT_SECRET }}" \
+            -var "tenant_id=${{ secrets.AZURE_TENANT_ID }}" \
             -var "subscription_id=${{ secrets.AZURE_SUBSCRIPTION_ID }}" \
             .
         working-directory: ./packer-windows
@@ -336,6 +340,7 @@ jobs:
         uses: azure/login@v3
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
       - name: Deploy Ephemeral VM
