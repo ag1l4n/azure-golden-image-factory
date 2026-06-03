@@ -113,6 +113,7 @@ jobs:
       VM_SIZE:        ${{ vars.VM_SIZE }}
       WINDOWS_ADMIN_PASS: ${{ secrets.WINDOWS_LOCAL_ADMIN_PASSWORD }}
 
+      # ── Shared PKR_VAR_* for all OS builds ──────────────────────────────
       PKR_VAR_resource_group:        ${{ vars.AZURE_RG }}
       PKR_VAR_gallery_name:          ${{ vars.AZURE_GALLERY }}
       PKR_VAR_location:              ${{ inputs.azure_region || vars.AZURE_LOCATION }}
@@ -120,13 +121,25 @@ jobs:
       PKR_VAR_subscription_id:       ${{ secrets.AZURE_SUBSCRIPTION_ID }}
       PKR_VAR_local_admin_username:  sysadmin
       PKR_VAR_local_admin_password:  ${{ secrets.WINDOWS_LOCAL_ADMIN_PASSWORD }}
-      PKR_VAR_client_id           :  ${{ secrets.AZURE_CLIENT_ID }}
-      PKR_VAR_client_secret:         ${{ secrets.AZURE_CLIENT_SECRET }}
+
+      # ── Windows-specific: explicit SP credentials for long-running build ─
+      # These are read by windows-cis.pkr.hcl via PKR_VAR_* convention.
+      # Linux builds ignore these because their templates have no matching
+      # variables — Packer silently skips unrecognised PKR_VAR_* values.
+      PKR_VAR_client_id:     ${{ secrets.AZURE_CLIENT_ID }}
+      PKR_VAR_client_secret: ${{ secrets.AZURE_CLIENT_SECRET }}
+      PKR_VAR_tenant_id:     ${{ secrets.AZURE_TENANT_ID }}
 
     steps:
       - name: Checkout Code
         uses: actions/checkout@v3
 
+      # ── OIDC login — used for all az cli steps throughout this job ───────
+      # For Linux Packer builds, this CLI session is also used by Packer
+      # (use_azure_cli_auth = true in those templates). For Windows, Packer
+      # authenticates independently via PKR_VAR_client_* above, so this
+      # session only needs to be alive for the az cli steps (VM create, NSG,
+      # teardown), not for the multi-hour Packer build itself.
       - name: Authenticate to Azure
         uses: azure/login@v3
         with:
@@ -135,8 +148,6 @@ jobs:
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
       # ── BUG FIX: Resolve a short slug for use in Azure resource names ────
-      # matrix.os contains spaces/dots ("Ubuntu 22.04", "RHEL 9", etc.)
-      # which are invalid in Azure VM and NSG names. VM_SLUG is safe to use.
       - name: Resolve VM Slug
         run: |
           case "${{ matrix.os }}" in
@@ -253,23 +264,55 @@ jobs:
            || matrix.os == 'Rocky 9'             && './packer-rocky'
            ||                                        './packer-windows' }}
 
-      - name: Build Golden Image
-        if: ${{ inputs.scan_only != 'true' }}
+      # ── Re-authenticate immediately before the Windows Packer build ──────
+      # The OIDC token from the login step at the top of this job is valid
+      # for only ~5 minutes. By the time we reach this step for Windows
+      # (after pip install, Galaxy install, packer init), it has expired.
+      # The re-login here refreshes the az cli session used by the az steps
+      # that follow the build (VM deploy, scan, teardown).
+      # Packer itself uses PKR_VAR_client_* and does NOT depend on this
+      # session — this step is purely to keep az cli working post-build.
+      - name: Re-authenticate to Azure (Windows — pre-build refresh)
+        if: ${{ inputs.scan_only != 'true' && matrix.os == 'Windows Server 2022' }}
+        uses: azure/login@v3
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      # ── Build Golden Image ────────────────────────────────────────────────
+      # Windows: passes explicit SP credentials so Packer authenticates
+      #          independently of the OIDC session (which would expire during
+      #          the 60-90 min build). Also passes the image definition name
+      #          override and the tenant_id which OIDC builds don't need.
+      # Linux:   uses PKR_VAR_* env vars set in the job env block above;
+      #          those templates use use_azure_cli_auth = true and complete
+      #          well within the OIDC token lifetime.
+      - name: Build Golden Image (Linux)
+        if: ${{ inputs.scan_only != 'true' && matrix.os != 'Windows Server 2022' }}
         run: |
           packer build \
             -force \
             -var "image_version=${{ needs.prepare.outputs.new_version }}" \
             .
         working-directory: >-
-          ${{ matrix.os == 'Ubuntu 22.04'        && './packer-ubuntu'
-           || matrix.os == 'RHEL 9'              && './packer-rhel'
-           || matrix.os == 'Rocky 9'             && './packer-rocky'
-           ||                                        './packer-windows' }}
-        env:
-          PKR_VAR_image_definition_name: >-
-            ${{ matrix.os == 'Windows Server 2022'
-             && (inputs.windows_image_name_override || 'windows-server-2022-cis')
-             || '' }}
+          ${{ matrix.os == 'Ubuntu 22.04' && './packer-ubuntu'
+           || matrix.os == 'RHEL 9'       && './packer-rhel'
+           ||                                 './packer-rocky' }}
+
+      - name: Build Golden Image (Windows)
+        if: ${{ inputs.scan_only != 'true' && matrix.os == 'Windows Server 2022' }}
+        run: |
+          packer build \
+            -force \
+            -var "image_version=${{ needs.prepare.outputs.new_version }}" \
+            -var "image_definition_name=${{ inputs.windows_image_name_override || 'windows-server-2022-cis' }}" \
+            -var "client_id=${{ secrets.AZURE_CLIENT_ID }}" \
+            -var "client_secret=${{ secrets.AZURE_CLIENT_SECRET }}" \
+            -var "tenant_id=${{ secrets.AZURE_TENANT_ID }}" \
+            -var "subscription_id=${{ secrets.AZURE_SUBSCRIPTION_ID }}" \
+            .
+        working-directory: ./packer-windows
 
       # ──────────────────────────────────────────────────────────────────────
       # DEPLOY EPHEMERAL VM FOR SCANNING
@@ -287,6 +330,18 @@ jobs:
             "Rocky 9")             echo "name=${{ inputs.rocky_image_name_override  || 'rocky-nvme-cis'  }}" >> $GITHUB_OUTPUT ;;
             "Windows Server 2022") echo "name=${{ inputs.windows_image_name_override || 'windows-server-2022-cis' }}" >> $GITHUB_OUTPUT ;;
           esac
+
+      # ── Re-authenticate before the scan phase ────────────────────────────
+      # After a 60-90 min Windows Packer build the az cli OIDC session has
+      # definitely expired. This refresh covers the VM deploy / scan / teardown
+      # steps that follow. For Linux builds the token is still fresh, but the
+      # re-login is harmless and keeps the logic uniform.
+      - name: Re-authenticate to Azure (pre-scan refresh)
+        uses: azure/login@v3
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
       - name: Deploy Ephemeral VM
         run: |
@@ -495,7 +550,6 @@ jobs:
           echo "Installing Cinc Auditor..."
           curl -sL https://omnitruck.cinc.sh/install.sh | sudo bash -s -- -P cinc-auditor
 
-          # No more patching needed! We are enforcing the CIS state via Gold-Standard files.
           echo "Executing Cinc Auditor against hardened Windows Image..."
           cinc-auditor exec https://github.com/dev-sec/windows-baseline \
             -t ssh://sysadmin@${{ env.VM_IP }} \
@@ -516,7 +570,6 @@ jobs:
       - name: Destroy Ephemeral VM
         if: ${{ always() && env.VM_IP != '' }}
         run: |
-          # ✅ BUG FIX: was scan-${{ matrix.os }}-vm — spaces made this an invalid Azure name
           az vm delete \
             --resource-group ${{ env.AZURE_RG }} \
             --name scan-${{ env.VM_SLUG }}-vm \
@@ -528,7 +581,6 @@ jobs:
             | xargs -I {} az network public-ip delete \
                 --resource-group ${{ env.AZURE_RG }} --name {} || true
 
-          # ✅ BUG FIX: was scan-${{ matrix.os }}-vmNSG — same invalid name issue
           az network nsg delete \
             --resource-group ${{ env.AZURE_RG }} \
             --name scan-${{ env.VM_SLUG }}-vmNSG || true
@@ -560,7 +612,6 @@ jobs:
         uses: mathieudutour/github-tag-action@v6.2
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          # REMOVED the 'v' here, the action will auto-prepend it!
           custom_tag: ${{ needs.prepare.outputs.new_version }}
 
       - name: Publish Golden Image Release
