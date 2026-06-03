@@ -209,12 +209,6 @@ build {
     script = "${path.root}/../packer-windows/scripts/bootstrap-winrm.ps1"
   }
 
-  # Step 2 — Windows Restart
-  provisioner "windows-restart" {
-    restart_timeout       = "20m"
-    restart_check_command = "powershell -command \"& {Write-Output 'restarted'}\""
-  }
-
   # Step 3 — CIS L1 main hardening pass.
   # --skip-tags winrm_connectivity defers the two controls that would kill
   # the Ansible WinRM connection (18.9.102.2.2 and 18.9.103.1).
