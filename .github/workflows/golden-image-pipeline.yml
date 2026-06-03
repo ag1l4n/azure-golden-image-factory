@@ -414,19 +414,20 @@ jobs:
         run: |
           if [[ "${{ matrix.os }}" == "Windows Server 2022" ]]; then
             echo "Waiting for SSH on Windows VM ($VM_IP)..."
-            for i in {1..30}; do
+            # EXTENDED: 60 attempts * 20 seconds = 20 minutes max wait
+            for i in {1..60}; do
               if nc -zw3 "$VM_IP" 22 2>/dev/null; then
                 echo "Port 22 open after attempt $i."
                 break
               fi
-              echo "Attempt $i/30 — not ready, retrying in 15s..."
-              sleep 15
-              if [ "$i" -eq 30 ]; then
+              echo "Attempt $i/60 — not ready, retrying in 20s..."
+              sleep 20
+              if [ "$i" -eq 60 ]; then
                 echo "ERROR: Windows VM SSH never became reachable."
                 exit 1
               fi
             done
-            sleep 30
+            sleep 15
           else
             echo "Waiting for SSH on ${{ matrix.os }} VM ($VM_IP)..."
             for i in {1..20}; do
@@ -449,6 +450,14 @@ jobs:
       # ──────────────────────────────────────────────────────────────────────
       # DIAGNOSTIC DUMP (RUNS ONLY IF SSH FAILS)
       # ──────────────────────────────────────────────────────────────────────
+      
+      - name: Re-authenticate to Azure (Diagnostic)
+        if: failure() && matrix.os == 'Windows Server 2022'
+        uses: azure/login@v3
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
       - name: Diagnose SSH state inside VM (Windows only)
         if: failure() && matrix.os == 'Windows Server 2022'
@@ -465,21 +474,6 @@ jobs:
 
               Write-Output '--- Port 22 listener ---'
               netstat -ano | Select-String ':22'
-
-              Write-Output '--- GP Firewall rule for SSH ---'
-              Get-Item 'HKLM:\SOFTWARE\Policies\Microsoft\WindowsFirewall\FirewallRules' -ErrorAction SilentlyContinue | Get-ItemProperty | Select-Object 'OpenSSH-Server-Inbound-TCP22'
-
-              Write-Output '--- AllowLocalPolicyMerge (should be 0 for CIS) ---'
-              (Get-ItemProperty HKLM:\SOFTWARE\Policies\Microsoft\WindowsFirewall\PublicProfile).AllowLocalPolicyMerge
-
-              Write-Output '=== 1. SSH SERVICE STATUS ==='
-              Get-Service sshd | Select-Object Status, Name, DisplayName
-
-              Write-Output '=== 2. OS FIREWALL STATUS (PORT 22) ==='
-              Get-NetFirewallPortFilter | Where-Object LocalPort -eq 22 | Get-NetFirewallRule | Select-Object Name, Action, Enabled
-
-              Write-Output '=== 3. OPENSSH EVENT LOGS ==='
-              Get-EventLog -LogName Application -Source OpenSSH -Newest 5 -ErrorAction SilentlyContinue | Select-Object Message
 
               Write-Output '=== 4. CIS RESTORE LOG ==='
               Get-Content C:\Windows\Setup\Scripts\RestoreCIS.log -ErrorAction SilentlyContinue
@@ -567,8 +561,16 @@ jobs:
       # TEARDOWN
       # ──────────────────────────────────────────────────────────────────────
 
+      - name: Re-authenticate to Azure (Teardown)
+        if: always() && env.VM_IP != ''
+        uses: azure/login@v3
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
       - name: Destroy Ephemeral VM
-        if: ${{ always() && env.VM_IP != '' }}
+        if: always() && env.VM_IP != ''
         run: |
           az vm delete \
             --resource-group ${{ env.AZURE_RG }} \
