@@ -79,6 +79,11 @@ variable "client_secret" {
   sensitive = true
 }
 
+variable "tenant_id" {
+  type      = string
+  sensitive = true
+}
+
 variable "subscription_id" {
   type      = string
   sensitive = true
@@ -157,6 +162,7 @@ source "azure-arm" "win2022_cis_l1" {
   # Auth
   client_id       = var.client_id
   client_secret   = var.client_secret
+  tenant_id       = var.tenant_id
 
   # Build environment — same resource group as the gallery for simplicity
   subscription_id           = var.subscription_id
