@@ -209,6 +209,17 @@ build {
     script = "${path.root}/../packer-windows/scripts/bootstrap-winrm.ps1"
   }
 
+  provisioner "powershell" {
+    inline = [
+      "Write-Output 'Installing OpenSSH Server...'",
+      "Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0",
+      "Write-Output 'Generating SSH Host Keys...'",
+      "Start-Process -FilePath 'C:\\Windows\\System32\\OpenSSH\\ssh-keygen.exe' -ArgumentList '-A' -NoNewWindow -Wait",
+      "Set-Service -Name sshd -StartupType Automatic",
+      "Start-Service -Name sshd"
+    ]
+  }
+
   # Step 3 — CIS L1 main hardening pass.
   # --skip-tags winrm_connectivity defers the two controls that would kill
   # the Ansible WinRM connection (18.9.102.2.2 and 18.9.103.1).
