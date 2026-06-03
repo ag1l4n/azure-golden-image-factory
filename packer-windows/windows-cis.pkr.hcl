@@ -60,7 +60,7 @@ variable "image_definition_name" {
 
 variable "subscription_id" {
   type    = string
-  description = "The Azure Resource Group injected by GitHub"
+  description = ""
 }
 
 # Passed by the pipeline as: -var "image_version=<semver>"
@@ -72,6 +72,21 @@ variable "image_version" {
 variable "replication_regions" {
   type    = list(string)
   default = ["southeastasia"]
+}
+
+variable "client_id" {
+  type      = string
+  sensitive = true
+}
+
+variable "client_secret" {
+  type      = string
+  sensitive = true
+}
+
+variable "subscription_id" {
+  type      = string
+  sensitive = true
 }
 
 # Matches PKR_VAR_vm_size set in the pipeline env block.
@@ -145,7 +160,9 @@ locals {
 
 source "azure-arm" "win2022_cis_l1" {
   # Auth
-  use_azure_cli_auth = true
+  client_id       = var.client_id
+  client_secret   = var.client_secret
+  subscription_id = var.subscription_id
 
   # Build environment — same resource group as the gallery for simplicity
   subscription_id           = var.subscription_id
@@ -190,6 +207,12 @@ build {
   # Azure images can silently reset WinRM config during first-boot scripts.
   provisioner "powershell" {
     script = "${path.root}/../packer-windows/scripts/bootstrap-winrm.ps1"
+  }
+
+  # Step 2 — Windows Restart
+  provisioner "windows-restart" {
+    restart_timeout       = "20m"
+    restart_check_command = "powershell -command \"& {Write-Output 'restarted'}\""
   }
 
   # Step 3 — CIS L1 main hardening pass.
