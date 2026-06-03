@@ -72,6 +72,20 @@ Start-Process -FilePath "C:\Windows\System32\OpenSSH\ssh-keygen.exe" -ArgumentLi
 Set-Service -Name sshd -StartupType Automatic
 Start-Service -Name sshd
 
+# Step A: CIS disables local firewall merges. We must temporarily allow them
+# so our Port 22 rule is respected by Windows Defender.
+$profiles = @("DomainProfile", "PrivateProfile", "PublicProfile")
+foreach ($prof in $profiles) {
+    $path = "HKLM:\SOFTWARE\Policies\Microsoft\WindowsFirewall\$prof"
+    if (Test-Path $path) { 
+        Set-ItemProperty -Path $path -Name "AllowLocalPolicyMerge" -Value 1 -Force 
+    }
+}
+
+# Step B: Forcefully open Port 22 for the GitHub Actions Scanner
+Remove-NetFirewallRule -Name "Allow-SSH-Pipeline" -ErrorAction SilentlyContinue
+New-NetFirewallRule -Name "Allow-SSH-Pipeline" -DisplayName "Allow SSH Pipeline" -Enabled True -Direction Inbound -Protocol TCP -Action Allow -LocalPort 22 -Profile Any
+
 Stop-Transcript
 '@ | Out-File -FilePath $restoreScript -Encoding ASCII -Force
 
