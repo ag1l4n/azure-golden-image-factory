@@ -58,11 +58,6 @@ variable "image_definition_name" {
   default = "windows-server-2022-cis"
 }
 
-variable "subscription_id" {
-  type    = string
-  description = ""
-}
-
 # Passed by the pipeline as: -var "image_version=<semver>"
 variable "image_version" {
   type    = string
