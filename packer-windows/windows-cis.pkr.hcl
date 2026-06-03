@@ -208,8 +208,10 @@ build {
   provisioner "powershell" {
     script = "${path.root}/../packer-windows/scripts/bootstrap-winrm.ps1"
   }
-
+  
   provisioner "powershell" {
+    elevated_user     = build.User
+    elevated_password = build.Password
     inline = [
       "Write-Output 'Installing OpenSSH Server...'",
       "Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0",
