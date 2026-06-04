@@ -67,13 +67,15 @@ regedit.exe /s C:\Windows\Setup\Scripts\CIS-Policies.reg
 gpupdate /force /boot
 if ($LASTEXITCODE -ne 0) { Write-Error "gpupdate failed!" }
 
+# =====================================================================
+# THE FIX: REPAIR SYSPREP OPENSSH CORRUPTION
+# =====================================================================
 Write-Output "Purging corrupted Sysprep SSH keys..."
 Remove-Item -Path "$env:ProgramData\ssh\ssh_host_*" -Force -Recurse -ErrorAction SilentlyContinue
 
 Write-Output "Generating fresh SSH Host Keys..."
 Start-Process -FilePath "C:\Windows\System32\OpenSSH\ssh-keygen.exe" -ArgumentList "-A" -NoNewWindow -Wait
 
-# Run Microsoft's native OpenSSH permission repair script if it exists
 $aclScript = "C:\Windows\System32\OpenSSH\FixHostFilePermissions.ps1"
 if (Test-Path $aclScript) {
     & powershell.exe -ExecutionPolicy Bypass -File $aclScript -Confirm:$false
@@ -83,8 +85,7 @@ Write-Output "Starting OpenSSH Server..."
 Set-Service -Name sshd -StartupType Automatic
 Start-Service -Name sshd
 
-# Step A: CIS disables local firewall merges. We must temporarily allow them
-# so our Port 22 rule is respected by Windows Defender.
+# Punch through the CIS Firewall Lockdown
 $profiles = @("DomainProfile", "PrivateProfile", "PublicProfile")
 foreach ($prof in $profiles) {
     $path = "HKLM:\SOFTWARE\Policies\Microsoft\WindowsFirewall\$prof"
@@ -93,7 +94,6 @@ foreach ($prof in $profiles) {
     }
 }
 
-# Step B: Forcefully open Port 22 for the GitHub Actions Scanner
 Remove-NetFirewallRule -Name "Allow-SSH-Pipeline" -ErrorAction SilentlyContinue
 New-NetFirewallRule -Name "Allow-SSH-Pipeline" -DisplayName "Allow SSH Pipeline" -Enabled True -Direction Inbound -Protocol TCP -Action Allow -LocalPort 22 -Profile Any
 

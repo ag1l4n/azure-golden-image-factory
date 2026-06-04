@@ -545,16 +545,18 @@ jobs:
           curl -sL https://omnitruck.cinc.sh/install.sh | sudo bash -s -- -P cinc-auditor
 
           echo "Executing Cinc Auditor against hardened Windows Image..."
-          # Robust Retry Loop for Windows OpenSSH connections
+          # Robust Retry Loop for SSH Drops
           for i in {1..3}; do
             echo "Attempt $i/3..."
+            # FIXED: Use native bash variable for password to prevent interpolation bugs
             if cinc-auditor exec https://github.com/dev-sec/windows-baseline \
               -t ssh://sysadmin@${{ env.VM_IP }} \
-              --password "${{ env.WINDOWS_ADMIN_PASS }}" \
+              --password "$WINDOWS_ADMIN_PASS" \
               --input server_role=member_server \
               --input domain_joined=false \
               --backend-cache \
               --reporter html:./windows-cis-report.html json:./windows-cis-report.json cli; then
+              
               echo "Cinc Auditor completed successfully."
               break
             else
@@ -563,16 +565,21 @@ jobs:
             fi
           done
 
+          echo "Reports generated successfully."
+          echo "HTML Size: $(du -sh ./windows-cis-report.html | cut -f1 || echo '0')"
+          echo "JSON Size: $(du -sh ./windows-cis-report.json | cut -f1 || echo '0')"
+
       # ──────────────────────────────────────────────────────────────────────
       # TEARDOWN
       # ──────────────────────────────────────────────────────────────────────
-      
+
       - name: Prune Empty Reports (Failsafe)
         if: always()
         run: |
           echo "Removing any 0-byte reports to prevent GitHub Release API errors..."
           find . -maxdepth 1 -name "*-cis-report.*" -type f -size 0 -print -delete
 
+      # NEW: The 3rd Re-auth step. If the scan took 15 minutes, the Azure CLI token is dead!
       - name: Re-authenticate to Azure (Teardown)
         if: always() && env.VM_IP != ''
         uses: azure/login@v3
