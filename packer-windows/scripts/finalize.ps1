@@ -67,8 +67,19 @@ regedit.exe /s C:\Windows\Setup\Scripts\CIS-Policies.reg
 gpupdate /force /boot
 if ($LASTEXITCODE -ne 0) { Write-Error "gpupdate failed!" }
 
-# Start OpenSSH
+Write-Output "Purging corrupted Sysprep SSH keys..."
+Remove-Item -Path "$env:ProgramData\ssh\ssh_host_*" -Force -Recurse -ErrorAction SilentlyContinue
+
+Write-Output "Generating fresh SSH Host Keys..."
 Start-Process -FilePath "C:\Windows\System32\OpenSSH\ssh-keygen.exe" -ArgumentList "-A" -NoNewWindow -Wait
+
+# Run Microsoft's native OpenSSH permission repair script if it exists
+$aclScript = "C:\Windows\System32\OpenSSH\FixHostFilePermissions.ps1"
+if (Test-Path $aclScript) {
+    & powershell.exe -ExecutionPolicy Bypass -File $aclScript -Confirm:$false
+}
+
+Write-Output "Starting OpenSSH Server..."
 Set-Service -Name sshd -StartupType Automatic
 Start-Service -Name sshd
 
