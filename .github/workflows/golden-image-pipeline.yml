@@ -545,21 +545,33 @@ jobs:
           curl -sL https://omnitruck.cinc.sh/install.sh | sudo bash -s -- -P cinc-auditor
 
           echo "Executing Cinc Auditor against hardened Windows Image..."
-          cinc-auditor exec https://github.com/dev-sec/windows-baseline \
-            -t ssh://sysadmin@${{ env.VM_IP }} \
-            --password "${{ env.WINDOWS_ADMIN_PASS }}" \
-            --input server_role=member_server \
-            --input domain_joined=false \
-            --backend-cache \
-            --reporter html:./windows-cis-report.html json:./windows-cis-report.json cli || true
-
-          echo "Reports generated successfully."
-          echo "HTML Size: $(du -sh ./windows-cis-report.html | cut -f1)"
-          echo "JSON Size: $(du -sh ./windows-cis-report.json | cut -f1)"
+          # Robust Retry Loop for Windows OpenSSH connections
+          for i in {1..3}; do
+            echo "Attempt $i/3..."
+            if cinc-auditor exec https://github.com/dev-sec/windows-baseline \
+              -t ssh://sysadmin@${{ env.VM_IP }} \
+              --password "${{ env.WINDOWS_ADMIN_PASS }}" \
+              --input server_role=member_server \
+              --input domain_joined=false \
+              --backend-cache \
+              --reporter html:./windows-cis-report.html json:./windows-cis-report.json cli; then
+              echo "Cinc Auditor completed successfully."
+              break
+            else
+              echo "Warning: Cinc Auditor dropped the connection. Retrying in 30 seconds..."
+              sleep 30
+            fi
+          done
 
       # ──────────────────────────────────────────────────────────────────────
       # TEARDOWN
       # ──────────────────────────────────────────────────────────────────────
+      
+      - name: Prune Empty Reports (Failsafe)
+        if: always()
+        run: |
+          echo "Removing any 0-byte reports to prevent GitHub Release API errors..."
+          find . -maxdepth 1 -name "*-cis-report.*" -type f -size 0 -print -delete
 
       - name: Re-authenticate to Azure (Teardown)
         if: always() && env.VM_IP != ''
