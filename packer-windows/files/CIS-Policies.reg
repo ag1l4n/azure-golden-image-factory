@@ -633,7 +633,6 @@ Windows Registry Editor Version 5.00
 "LogSuccessfulConnections"=dword:00000001
 
 [HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Microsoft\WindowsFirewall\PublicProfile]
-"AllowLocalPolicyMerge"=dword:00000000
 "AllowLocalIPsecPolicyMerge"=dword:00000000
 
 [HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Microsoft\WindowsInkWorkspace]

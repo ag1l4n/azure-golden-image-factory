@@ -362,16 +362,40 @@ jobs:
               --size            ${{ env.VM_SIZE }} \
               --nic-delete-option delete \
               --os-disk-delete-option delete \
-              --nsg-rule SSH
 
+            RUNNER_IP=$(curl -s --max-time 10 https://api.ipify.org)
+            if [[ -z "$RUNNER_IP" ]]; then
+              echo "ERROR: Could not determine runner IP. Aborting to prevent world-open NSG rule."
+              exit 1
+            fi
             az network nsg rule create \
               --resource-group ${{ env.AZURE_RG }} \
               --nsg-name scan-${{ env.VM_SLUG }}-vmNSG \
               --name Allow-SSH-Pipeline \
               --priority 1010 \
               --destination-port-ranges 22 \
+              --source-address-prefixes "$RUNNER_IP/32" \
               --access Allow \
               --protocol Tcp
+
+            PUB_KEY=$(cat ~/.ssh/scanner_key.pub)
+            az vm run-command invoke \
+              --resource-group ${{ env.AZURE_RG }} \
+              --name scan-${{ env.VM_SLUG }}-vm \
+              --command-id RunPowerShellScript \
+              --scripts "
+                \$authorizedKeysPath = 'C:\ProgramData\ssh\administrators_authorized_keys'
+                Add-Content -Path \$authorizedKeysPath -Value '$PUB_KEY' -Force
+                icacls.exe \$authorizedKeysPath /inheritance:r /grant 'NT AUTHORITY\SYSTEM:(F)' /grant 'BUILTIN\Administrators:(F)'
+              "
+            
+            AUTO_SHUTDOWN_TIME=$(date -u -d '+2 hours' '+%H%M')
+            echo "Auto-shutdown scheduled for ${AUTO_SHUTDOWN_TIME} UTC"
+            az vm auto-shutdown \
+              --resource-group ${{ env.AZURE_RG }} \
+              --name scan-${{ env.VM_SLUG }}-vm \
+              --time "$AUTO_SHUTDOWN_TIME"
+              
           elif [[ "${{ matrix.os }}" == "Rocky 9" ]]; then
             az vm create \
               --resource-group  ${{ env.AZURE_RG }} \
@@ -553,12 +577,12 @@ jobs:
             echo "Attempt $i/10..."
             if cinc-auditor exec https://github.com/dev-sec/windows-baseline \
               -t ssh://sysadmin@${{ env.VM_IP }} \
-              --password "$WINDOWS_ADMIN_PASS" \
+              -i ~/.ssh/scanner_key \          # <-- key instead of --password
               --input server_role=member_server \
               --input domain_joined=false \
               --backend-cache \
               --reporter html:./windows-cis-report.html json:./windows-cis-report.json cli; then
-              
+
               echo "Cinc Auditor completed successfully."
               break
             else
