@@ -388,7 +388,26 @@ jobs:
                 Add-Content -Path \$authorizedKeysPath -Value '$PUB_KEY' -Force
                 icacls.exe \$authorizedKeysPath /inheritance:r /grant 'NT AUTHORITY\SYSTEM:(F)' /grant 'BUILTIN\Administrators:(F)'
               "
-            
+
+            az vm run-command invoke \
+              --resource-group ${{ env.AZURE_RG }} \
+              --name scan-${{ env.VM_SLUG }}-vm \
+              --command-id RunPowerShellScript \
+              --scripts "
+                Write-Output '--- authorized_keys content ---'
+                Get-Content 'C:\ProgramData\ssh\administrators_authorized_keys' -ErrorAction SilentlyContinue
+
+                Write-Output '--- ACL on authorized_keys ---'
+                icacls.exe 'C:\ProgramData\ssh\administrators_authorized_keys'
+
+                Write-Output '--- sshd_config AuthorizedKeysFile setting ---'
+                Get-Content 'C:\ProgramData\ssh\sshd_config' | Select-String 'AuthorizedKeys'
+
+                Write-Output '--- sshd service state ---'
+                Get-Service sshd | Select Name, Status, StartType
+              " \
+              --query value[0].message -o tsv
+
             AUTO_SHUTDOWN_TIME=$(date -u -d '+2 hours' '+%H%M')
             echo "Auto-shutdown scheduled for ${AUTO_SHUTDOWN_TIME} UTC"
             az vm auto-shutdown \
@@ -434,185 +453,185 @@ jobs:
       # WAIT FOR SSH
       # ──────────────────────────────────────────────────────────────────────
 
-      - name: Wait for SSH Connection
-        run: |
-          if [[ "${{ matrix.os }}" == "Windows Server 2022" ]]; then
-            echo "Waiting for SSH on Windows VM ($VM_IP)..."
-            # EXTENDED: 60 attempts * 20 seconds = 20 minutes max wait
-            for i in {1..60}; do
-              if nc -zw3 "$VM_IP" 22 2>/dev/null; then
-                echo "Port 22 open after attempt $i."
-                break
-              fi
-              echo "Attempt $i/60 — not ready, retrying in 20s..."
-              sleep 20
-              if [ "$i" -eq 60 ]; then
-                echo "ERROR: Windows VM SSH never became reachable."
-                exit 1
-              fi
-            done
-            sleep 15
-          else
-            echo "Waiting for SSH on ${{ matrix.os }} VM ($VM_IP)..."
-            for i in {1..20}; do
-              if ssh -o StrictHostKeyChecking=no \
-                     -o ConnectTimeout=5 \
-                     -i ~/.ssh/scanner_key \
-                     sysadmin@"$VM_IP" exit 0 2>/dev/null; then
-                echo "SSH is up after attempt $i."
-                break
-              fi
-              echo "Attempt $i/20 — SSH not ready, retrying in 10s..."
-              sleep 10
-              if [ "$i" -eq 20 ]; then
-                echo "ERROR: SSH never became available after 200s."
-                exit 1
-              fi
-            done
-          fi
+      # - name: Wait for SSH Connection
+      #   run: |
+      #     if [[ "${{ matrix.os }}" == "Windows Server 2022" ]]; then
+      #       echo "Waiting for SSH on Windows VM ($VM_IP)..."
+      #       # EXTENDED: 60 attempts * 20 seconds = 20 minutes max wait
+      #       for i in {1..60}; do
+      #         if nc -zw3 "$VM_IP" 22 2>/dev/null; then
+      #           echo "Port 22 open after attempt $i."
+      #           break
+      #         fi
+      #         echo "Attempt $i/60 — not ready, retrying in 20s..."
+      #         sleep 20
+      #         if [ "$i" -eq 60 ]; then
+      #           echo "ERROR: Windows VM SSH never became reachable."
+      #           exit 1
+      #         fi
+      #       done
+      #       sleep 15
+      #     else
+      #       echo "Waiting for SSH on ${{ matrix.os }} VM ($VM_IP)..."
+      #       for i in {1..20}; do
+      #         if ssh -o StrictHostKeyChecking=no \
+      #                -o ConnectTimeout=5 \
+      #                -i ~/.ssh/scanner_key \
+      #                sysadmin@"$VM_IP" exit 0 2>/dev/null; then
+      #           echo "SSH is up after attempt $i."
+      #           break
+      #         fi
+      #         echo "Attempt $i/20 — SSH not ready, retrying in 10s..."
+      #         sleep 10
+      #         if [ "$i" -eq 20 ]; then
+      #           echo "ERROR: SSH never became available after 200s."
+      #           exit 1
+      #         fi
+      #       done
+      #     fi
 
-      # ──────────────────────────────────────────────────────────────────────
-      # DIAGNOSTIC DUMP (RUNS ONLY IF SSH FAILS)
-      # ──────────────────────────────────────────────────────────────────────
+      # # ──────────────────────────────────────────────────────────────────────
+      # # DIAGNOSTIC DUMP (RUNS ONLY IF SSH FAILS)
+      # # ──────────────────────────────────────────────────────────────────────
       
-      - name: Re-authenticate to Azure (Diagnostic)
-        if: failure() && matrix.os == 'Windows Server 2022'
-        uses: azure/login@v3
-        with:
-          client-id: ${{ secrets.AZURE_CLIENT_ID }}
-          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      # - name: Re-authenticate to Azure (Diagnostic)
+      #   if: failure() && matrix.os == 'Windows Server 2022'
+      #   uses: azure/login@v3
+      #   with:
+      #     client-id: ${{ secrets.AZURE_CLIENT_ID }}
+      #     tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+      #     subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
-      - name: Diagnose SSH state inside VM (Windows only)
-        if: failure() && matrix.os == 'Windows Server 2022'
-        run: |
-          echo "SSH Wait loop failed! Checking sshd service state and firewall from inside the VM..."
+      # - name: Diagnose SSH state inside VM (Windows only)
+      #   if: failure() && matrix.os == 'Windows Server 2022'
+      #   run: |
+      #     echo "SSH Wait loop failed! Checking sshd service state and firewall from inside the VM..."
 
-          az vm run-command invoke \
-            --resource-group ${{ env.AZURE_RG }} \
-            --name scan-${{ env.VM_SLUG }}-vm \
-            --command-id RunPowerShellScript \
-            --scripts "
-              Write-Output '--- sshd service ---'
-              Get-Service sshd | Select Name, Status, StartType | Format-List
+      #     az vm run-command invoke \
+      #       --resource-group ${{ env.AZURE_RG }} \
+      #       --name scan-${{ env.VM_SLUG }}-vm \
+      #       --command-id RunPowerShellScript \
+      #       --scripts "
+      #         Write-Output '--- sshd service ---'
+      #         Get-Service sshd | Select Name, Status, StartType | Format-List
 
-              Write-Output '--- Port 22 listener ---'
-              netstat -ano | Select-String ':22'
+      #         Write-Output '--- Port 22 listener ---'
+      #         netstat -ano | Select-String ':22'
 
-              Write-Output '=== 4. CIS RESTORE LOG ==='
-              Get-Content C:\Windows\Setup\Scripts\RestoreCIS.log -ErrorAction SilentlyContinue
-            " \
-            --query value[0].message -o tsv || true
+      #         Write-Output '=== 4. CIS RESTORE LOG ==='
+      #         Get-Content C:\Windows\Setup\Scripts\RestoreCIS.log -ErrorAction SilentlyContinue
+      #       " \
+      #       --query value[0].message -o tsv || true
 
-      # ──────────────────────────────────────────────────────────────────────
-      # SCAN PHASE
-      # ──────────────────────────────────────────────────────────────────────
+      # # ──────────────────────────────────────────────────────────────────────
+      # # SCAN PHASE
+      # # ──────────────────────────────────────────────────────────────────────
 
-      - name: Run Ubuntu OpenSCAP & Download Report
-        if: ${{ matrix.os == 'Ubuntu 22.04' }}
-        run: |
-          ssh -o StrictHostKeyChecking=no -i ~/.ssh/scanner_key \
-              sysadmin@${{ env.VM_IP }} << 'EOF'
-            sudo apt-get update -qq
-            sudo apt-get install -y libopenscap8 unzip wget
-            wget -q https://github.com/ComplianceAsCode/content/releases/download/v0.1.74/scap-security-guide-0.1.74.zip
-            unzip -q scap-security-guide-0.1.74.zip
-            sudo oscap xccdf eval \
-              --profile xccdf_org.ssgproject.content_profile_cis_level1_server \
-              --report /tmp/ubuntu-cis-report.html \
-              scap-security-guide-0.1.74/ssg-ubuntu2204-ds.xml || true
-            sudo cp /tmp/ubuntu-cis-report.html /home/sysadmin/
-            sudo chown sysadmin:sysadmin /home/sysadmin/ubuntu-cis-report.html
-          EOF
-          scp -o StrictHostKeyChecking=no -i ~/.ssh/scanner_key \
-            sysadmin@${{ env.VM_IP }}:/home/sysadmin/ubuntu-cis-report.html \
-            ./ubuntu-cis-report.html
+      # - name: Run Ubuntu OpenSCAP & Download Report
+      #   if: ${{ matrix.os == 'Ubuntu 22.04' }}
+      #   run: |
+      #     ssh -o StrictHostKeyChecking=no -i ~/.ssh/scanner_key \
+      #         sysadmin@${{ env.VM_IP }} << 'EOF'
+      #       sudo apt-get update -qq
+      #       sudo apt-get install -y libopenscap8 unzip wget
+      #       wget -q https://github.com/ComplianceAsCode/content/releases/download/v0.1.74/scap-security-guide-0.1.74.zip
+      #       unzip -q scap-security-guide-0.1.74.zip
+      #       sudo oscap xccdf eval \
+      #         --profile xccdf_org.ssgproject.content_profile_cis_level1_server \
+      #         --report /tmp/ubuntu-cis-report.html \
+      #         scap-security-guide-0.1.74/ssg-ubuntu2204-ds.xml || true
+      #       sudo cp /tmp/ubuntu-cis-report.html /home/sysadmin/
+      #       sudo chown sysadmin:sysadmin /home/sysadmin/ubuntu-cis-report.html
+      #     EOF
+      #     scp -o StrictHostKeyChecking=no -i ~/.ssh/scanner_key \
+      #       sysadmin@${{ env.VM_IP }}:/home/sysadmin/ubuntu-cis-report.html \
+      #       ./ubuntu-cis-report.html
 
-      - name: Run RHEL OpenSCAP & Download Report
-        if: ${{ matrix.os == 'RHEL 9' }}
-        run: |
-          ssh -o StrictHostKeyChecking=no -i ~/.ssh/scanner_key \
-              sysadmin@${{ env.VM_IP }} << 'EOF'
-            sudo dnf install -y openscap-scanner scap-security-guide
-            sudo oscap xccdf eval \
-              --profile xccdf_org.ssgproject.content_profile_cis_server_l1 \
-              --report /tmp/rhel-cis-report.html \
-              /usr/share/xml/scap/ssg/content/ssg-rhel9-ds.xml || true
-            sudo cp /tmp/rhel-cis-report.html /home/sysadmin/
-            sudo chown sysadmin:sysadmin /home/sysadmin/rhel-cis-report.html
-          EOF
-          scp -o StrictHostKeyChecking=no -i ~/.ssh/scanner_key \
-            sysadmin@${{ env.VM_IP }}:/home/sysadmin/rhel-cis-report.html \
-            ./rhel-cis-report.html
+      # - name: Run RHEL OpenSCAP & Download Report
+      #   if: ${{ matrix.os == 'RHEL 9' }}
+      #   run: |
+      #     ssh -o StrictHostKeyChecking=no -i ~/.ssh/scanner_key \
+      #         sysadmin@${{ env.VM_IP }} << 'EOF'
+      #       sudo dnf install -y openscap-scanner scap-security-guide
+      #       sudo oscap xccdf eval \
+      #         --profile xccdf_org.ssgproject.content_profile_cis_server_l1 \
+      #         --report /tmp/rhel-cis-report.html \
+      #         /usr/share/xml/scap/ssg/content/ssg-rhel9-ds.xml || true
+      #       sudo cp /tmp/rhel-cis-report.html /home/sysadmin/
+      #       sudo chown sysadmin:sysadmin /home/sysadmin/rhel-cis-report.html
+      #     EOF
+      #     scp -o StrictHostKeyChecking=no -i ~/.ssh/scanner_key \
+      #       sysadmin@${{ env.VM_IP }}:/home/sysadmin/rhel-cis-report.html \
+      #       ./rhel-cis-report.html
 
-      - name: Run Rocky OpenSCAP & Download Report
-        if: ${{ matrix.os == 'Rocky 9' }}
-        run: |
-          ssh -o StrictHostKeyChecking=no -i ~/.ssh/scanner_key \
-              sysadmin@${{ env.VM_IP }} << 'EOF'
-            sudo dnf install -y openscap-scanner scap-security-guide
-            sudo oscap xccdf eval \
-              --profile xccdf_org.ssgproject.content_profile_cis_server_l1 \
-              --report /tmp/rocky-cis-report.html \
-              /usr/share/xml/scap/ssg/content/ssg-rl9-ds.xml || true
-            sudo cp /tmp/rocky-cis-report.html /home/sysadmin/
-            sudo chown sysadmin:sysadmin /home/sysadmin/rocky-cis-report.html
-          EOF
-          scp -o StrictHostKeyChecking=no -i ~/.ssh/scanner_key \
-            sysadmin@${{ env.VM_IP }}:/home/sysadmin/rocky-cis-report.html \
-            ./rocky-cis-report.html
+      # - name: Run Rocky OpenSCAP & Download Report
+      #   if: ${{ matrix.os == 'Rocky 9' }}
+      #   run: |
+      #     ssh -o StrictHostKeyChecking=no -i ~/.ssh/scanner_key \
+      #         sysadmin@${{ env.VM_IP }} << 'EOF'
+      #       sudo dnf install -y openscap-scanner scap-security-guide
+      #       sudo oscap xccdf eval \
+      #         --profile xccdf_org.ssgproject.content_profile_cis_server_l1 \
+      #         --report /tmp/rocky-cis-report.html \
+      #         /usr/share/xml/scap/ssg/content/ssg-rl9-ds.xml || true
+      #       sudo cp /tmp/rocky-cis-report.html /home/sysadmin/
+      #       sudo chown sysadmin:sysadmin /home/sysadmin/rocky-cis-report.html
+      #     EOF
+      #     scp -o StrictHostKeyChecking=no -i ~/.ssh/scanner_key \
+      #       sysadmin@${{ env.VM_IP }}:/home/sysadmin/rocky-cis-report.html \
+      #       ./rocky-cis-report.html
 
-      - name: Run Cinc Auditor & Generate Multi-Format Reports (Windows)
-        if: ${{ matrix.os == 'Windows Server 2022' }}
-        run: |
-          echo "Installing Cinc Auditor..."
-          curl -sL https://omnitruck.cinc.sh/install.sh | sudo bash -s -- -P cinc-auditor
+      # - name: Run Cinc Auditor & Generate Multi-Format Reports (Windows)
+      #   if: ${{ matrix.os == 'Windows Server 2022' }}
+      #   run: |
+      #     echo "Installing Cinc Auditor..."
+      #     curl -sL https://omnitruck.cinc.sh/install.sh | sudo bash -s -- -P cinc-auditor
 
-          echo "Waiting 90 seconds for the Azure VM Agent to inject local credentials..."
-          sleep 90
+      #     echo "Waiting 90 seconds for the Azure VM Agent to inject local credentials..."
+      #     sleep 90
 
-          echo "Executing Cinc Auditor against hardened Windows Image..."
-          # Extended 10-attempt loop to outlast Azure provisioning delays
-          for i in {1..10}; do
-            echo "Attempt $i/10..."
-            if cinc-auditor exec https://github.com/dev-sec/windows-baseline \
-              -t ssh://sysadmin@${{ env.VM_IP }} \
-              -i ~/.ssh/scanner_key \          # <-- key instead of --password
-              --input server_role=member_server \
-              --input domain_joined=false \
-              --backend-cache \
-              --reporter html:./windows-cis-report.html json:./windows-cis-report.json cli; then
+      #     echo "Executing Cinc Auditor against hardened Windows Image..."
+      #     # Extended 10-attempt loop to outlast Azure provisioning delays
+      #     for i in {1..10}; do
+      #       SCAN_CMD="cinc-auditor exec https://github.com/dev-sec/windows-baseline"
+      #       SCAN_CMD="$SCAN_CMD -t ssh://sysadmin@${VM_IP}"
+      #       SCAN_CMD="$SCAN_CMD -i ~/.ssh/scanner_key"
+      #       SCAN_CMD="$SCAN_CMD --input server_role=member_server"
+      #       SCAN_CMD="$SCAN_CMD --input domain_joined=false"
+      #       SCAN_CMD="$SCAN_CMD --backend-cache"
+      #       SCAN_CMD="$SCAN_CMD --reporter html:./windows-cis-report.html json:./windows-cis-report.json cli"
 
-              echo "Cinc Auditor completed successfully."
-              break
-            else
-              echo "Warning: Authentication failed. Azure Agent is likely still configuring the SAM database. Retrying in 30 seconds..."
-              sleep 30
-            fi
-          done
+      #       if eval "$SCAN_CMD"; then
+      #         echo "Cinc Auditor completed successfully."
+      #         break
+      #       else
+      #         echo "Warning: Authentication failed. Retrying in 30 seconds..."
+      #         sleep 30
+      #       fi
+      #     done
 
-          echo "Reports generated successfully."
-          echo "HTML Size: $(du -sh ./windows-cis-report.html | cut -f1 || echo '0')"
-          echo "JSON Size: $(du -sh ./windows-cis-report.json | cut -f1 || echo '0')"
+      #     echo "Reports generated successfully."
+      #     echo "HTML Size: $(du -sh ./windows-cis-report.html | cut -f1 || echo '0')"
+      #     echo "JSON Size: $(du -sh ./windows-cis-report.json | cut -f1 || echo '0')"
 
-      # ──────────────────────────────────────────────────────────────────────
-      # TEARDOWN
-      # ──────────────────────────────────────────────────────────────────────
+      # # ──────────────────────────────────────────────────────────────────────
+      # # TEARDOWN
+      # # ──────────────────────────────────────────────────────────────────────
 
-      - name: Prune Empty Reports (Failsafe)
-        if: always()
-        run: |
-          echo "Removing any 0-byte reports to prevent GitHub Release API errors..."
-          find . -maxdepth 1 -name "*-cis-report.*" -type f -size 0 -print -delete
+      # - name: Prune Empty Reports (Failsafe)
+      #   if: always()
+      #   run: |
+      #     echo "Removing any 0-byte reports to prevent GitHub Release API errors..."
+      #     find . -maxdepth 1 -name "*-cis-report.*" -type f -size 0 -print -delete
 
-      # NEW: The 3rd Re-auth step. If the scan took 15 minutes, the Azure CLI token is dead!
-      - name: Re-authenticate to Azure (Teardown)
-        if: always() && env.VM_IP != ''
-        uses: azure/login@v3
-        with:
-          client-id: ${{ secrets.AZURE_CLIENT_ID }}
-          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      # # NEW: The 3rd Re-auth step. If the scan took 15 minutes, the Azure CLI token is dead!
+      # - name: Re-authenticate to Azure (Teardown)
+      #   if: always() && env.VM_IP != ''
+      #   uses: azure/login@v3
+      #   with:
+      #     client-id: ${{ secrets.AZURE_CLIENT_ID }}
+      #     tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+      #     subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
       - name: Destroy Ephemeral VM
         if: always() && env.VM_IP != ''
@@ -632,71 +651,71 @@ jobs:
             --resource-group ${{ env.AZURE_RG }} \
             --name scan-${{ env.VM_SLUG }}-vmNSG || true
 
-      - name: Upload Report Artifact
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ env.VM_SLUG }}-report
-          path: ./*-cis-report.*
+      # - name: Upload Report Artifact
+      #   if: always()
+      #   uses: actions/upload-artifact@v4
+      #   with:
+      #     name: ${{ env.VM_SLUG }}-report
+      #     path: ./*-cis-report.*
 
   # ============================================================
   # STAGE 3: PUBLISH (Tag & Release)
   # ============================================================
-  release:
-    name: Publish DevSecOps Release
-    needs: [prepare, matrix-factory]
-    runs-on: ubuntu-latest
-    if: ${{ !cancelled() && !failure() }}
-    steps:
-      - name: Download All Reports
-        uses: actions/download-artifact@v4
-        with:
-          path: ./reports
-          merge-multiple: true
+  # release:
+  #   name: Publish DevSecOps Release
+  #   needs: [prepare, matrix-factory]
+  #   runs-on: ubuntu-latest
+  #   if: ${{ !cancelled() && !failure() }}
+  #   steps:
+  #     - name: Download All Reports
+  #       uses: actions/download-artifact@v4
+  #       with:
+  #         path: ./reports
+  #         merge-multiple: true
 
-      - name: Push Official Git Tag
-        if: ${{ inputs.scan_only != true }}
-        uses: mathieudutour/github-tag-action@v6.2
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          custom_tag: ${{ needs.prepare.outputs.new_version }}
+  #     - name: Push Official Git Tag
+  #       if: ${{ inputs.scan_only != true }}
+  #       uses: mathieudutour/github-tag-action@v6.2
+  #       with:
+  #         github_token: ${{ secrets.GITHUB_TOKEN }}
+  #         custom_tag: ${{ needs.prepare.outputs.new_version }}
 
-      - name: Publish Golden Image Release
-        if: ${{ inputs.scan_only != true }}
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: v${{ needs.prepare.outputs.new_version }}
-          name: "Golden Image Release v${{ needs.prepare.outputs.new_version }}"
-          body: |
-            ## Golden Image Factory — v${{ needs.prepare.outputs.new_version }}
+  #     - name: Publish Golden Image Release
+  #       if: ${{ inputs.scan_only != true }}
+  #       uses: softprops/action-gh-release@v2
+  #       with:
+  #         tag_name: v${{ needs.prepare.outputs.new_version }}
+  #         name: "Golden Image Release v${{ needs.prepare.outputs.new_version }}"
+  #         body: |
+  #           ## Golden Image Factory — v${{ needs.prepare.outputs.new_version }}
 
-            Automated CIS Level 1 Compliance Reports for all built images.
+  #           Automated CIS Level 1 Compliance Reports for all built images.
 
-            | Image | Benchmark | Profile |
-            |-------|-----------|---------|
-            | Ubuntu 22.04 | CIS Ubuntu Linux 22.04 LTS | Level 1 Server |
-            | RHEL 9 | CIS Red Hat Enterprise Linux 9 | Level 1 Server |
-            | Rocky Linux 9 | CIS AlmaLinux/Rocky Linux 9 | Level 1 Server |
-            | Windows Server 2022 | CIS Microsoft Windows Server 2022 | Level 1 Member Server |
+  #           | Image | Benchmark | Profile |
+  #           |-------|-----------|---------|
+  #           | Ubuntu 22.04 | CIS Ubuntu Linux 22.04 LTS | Level 1 Server |
+  #           | RHEL 9 | CIS Red Hat Enterprise Linux 9 | Level 1 Server |
+  #           | Rocky Linux 9 | CIS AlmaLinux/Rocky Linux 9 | Level 1 Server |
+  #           | Windows Server 2022 | CIS Microsoft Windows Server 2022 | Level 1 Member Server |
 
-            **Azure Compute Gallery image version:** `${{ needs.prepare.outputs.new_version }}`
+  #           **Azure Compute Gallery image version:** `${{ needs.prepare.outputs.new_version }}`
 
-            > The Windows compliance report is generated at **build time** (pre-sysprep)
-            > by `run-compliance-scan.ps1` and baked into the image at `C:\CIS-Reports\`.
-          fail_on_unmatched_files: false
-          files: ./reports/*-cis-report.*
+  #           > The Windows compliance report is generated at **build time** (pre-sysprep)
+  #           > by `run-compliance-scan.ps1` and baked into the image at `C:\CIS-Reports\`.
+  #         fail_on_unmatched_files: false
+  #         files: ./reports/*-cis-report.*
 
-      - name: Publish Ad-Hoc Scan Report
-        if: ${{ inputs.scan_only == true }}
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: scan-report-${{ github.run_number }}
-          name: "Ad-Hoc Compliance Scan #${{ github.run_number }}"
-          body: |
-            Manual CIS Level 1 compliance evaluation against existing Gallery Images.
-            *(No new image versions were built during this run.)*
+  #     - name: Publish Ad-Hoc Scan Report
+  #       if: ${{ inputs.scan_only == true }}
+  #       uses: softprops/action-gh-release@v2
+  #       with:
+  #         tag_name: scan-report-${{ github.run_number }}
+  #         name: "Ad-Hoc Compliance Scan #${{ github.run_number }}"
+  #         body: |
+  #           Manual CIS Level 1 compliance evaluation against existing Gallery Images.
+  #           *(No new image versions were built during this run.)*
 
-            > **Windows note:** The report was retrieved from the pre-baked
-            > `C:\CIS-Reports\` directory inside the deployed VM.
-          fail_on_unmatched_files: false
-          files: ./reports/*-cis-report.html
+  #           > **Windows note:** The report was retrieved from the pre-baked
+  #           > `C:\CIS-Reports\` directory inside the deployed VM.
+  #         fail_on_unmatched_files: false
+  #         files: ./reports/*-cis-report.html
