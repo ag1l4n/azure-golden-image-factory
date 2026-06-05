@@ -408,6 +408,35 @@ jobs:
               " \
               --query value[0].message -o tsv
 
+            az vm run-command invoke \
+              --resource-group ${{ env.AZURE_RG }} \
+              --name scan-${{ env.VM_SLUG }}-vm \
+              --command-id RunPowerShellScript \
+              --scripts "
+                Get-Content 'C:\ProgramData\ssh\sshd_config'
+              " \
+              --query value[0].message -o tsv
+
+            az vm run-command invoke \
+              --resource-group ${{ env.AZURE_RG }} \
+              --name scan-${{ env.VM_SLUG }}-vm \
+              --command-id RunPowerShellScript \
+              --scripts "
+                Write-Output '--- sysadmin group memberships ---'
+                net user sysadmin
+                
+                Write-Output '--- Administrators group members ---'
+                net localgroup Administrators
+                
+                Write-Output '--- SSH auth log (last 20 lines) ---'
+                Get-Content 'C:\ProgramData\ssh\logs\sshd.log' -Tail 20 -ErrorAction SilentlyContinue
+                
+                Write-Output '--- EventLog SSH errors ---'
+                Get-WinEvent -LogName 'OpenSSH/Operational' -MaxEvents 10 -ErrorAction SilentlyContinue |
+                  Select TimeCreated, Message | Format-List
+              " \
+              --query value[0].message -o tsv
+
             AUTO_SHUTDOWN_TIME=$(date -u -d '+2 hours' '+%H%M')
             echo "Auto-shutdown scheduled for ${AUTO_SHUTDOWN_TIME} UTC"
             az vm auto-shutdown \
