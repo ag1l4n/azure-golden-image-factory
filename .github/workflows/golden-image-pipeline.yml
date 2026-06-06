@@ -379,32 +379,61 @@ jobs:
               --protocol Tcp
 
             PUB_KEY=$(cat ~/.ssh/scanner_key.pub)
+
+            # Write PowerShell to a temp file to avoid bash/PowerShell quoting conflicts
+            cat > /tmp/inject-ssh-key.ps1 << 'PSEOF'
+            # Wait for Azure VM Agent to create the sysadmin account
+            $maxWait = 300
+            $waited = 0
+            while (-not (Get-LocalUser -Name 'sysadmin' -ErrorAction SilentlyContinue)) {
+              Write-Output "Waiting for sysadmin account to be created... ($waited s)"
+              Start-Sleep -Seconds 10
+              $waited += 10
+              if ($waited -ge $maxWait) {
+                Write-Output 'ERROR: sysadmin account never appeared. Aborting.'
+                exit 1
+              }
+            }
+            Write-Output "sysadmin account exists. Proceeding."
+
+            # Wait for RestoreCIS scheduled task to finish
+            $waited = 0
+            while ((Get-ScheduledTask -TaskName 'RestoreCISPolicies' -ErrorAction SilentlyContinue).State -eq 'Running') {
+              Write-Output "Waiting for RestoreCIS to complete... ($waited s)"
+              Start-Sleep -Seconds 10
+              $waited += 10
+              if ($waited -ge 300) { Write-Output 'Timeout waiting for RestoreCIS'; break }
+            }
+            Write-Output "RestoreCIS completed or not running. Proceeding with key injection."
+
+            # Resolve actual profile path via registry rather than assuming C:\Users\sysadmin
+            $sysadminSid = (Get-LocalUser -Name 'sysadmin').SID.Value
+            $profilePath = (Get-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\ProfileList\$sysadminSid" -ErrorAction SilentlyContinue).ProfileImagePath
+            if (-not $profilePath) { $profilePath = "C:\Users\sysadmin" }
+            Write-Output "User profile path: $profilePath"
+
+            $userSsh = "$profilePath\.ssh"
+            if (-not (Test-Path $userSsh)) {
+              New-Item -ItemType Directory -Force -Path $userSsh | Out-Null
+            }
+
+            Set-Content -Path "$userSsh\authorized_keys" -Value 'SSH_PUBLIC_KEY_PLACEHOLDER' -Force
+
+            # Use SID in icacls to avoid "No mapping between account names and security IDs" error
+            icacls.exe "$userSsh\authorized_keys" /inheritance:r /grant "*${sysadminSid}:(F)" /grant 'NT AUTHORITY\SYSTEM:(F)'
+
+            Restart-Service sshd -Force
+            Write-Output "SSH key injected and sshd restarted."
+            PSEOF
+
+            # Substitute the actual public key into the script
+            sed -i "s|SSH_PUBLIC_KEY_PLACEHOLDER|${PUB_KEY}|g" /tmp/inject-ssh-key.ps1
+
             az vm run-command invoke \
               --resource-group ${{ env.AZURE_RG }} \
               --name scan-${{ env.VM_SLUG }}-vm \
               --command-id RunPowerShellScript \
-              --scripts "
-                # Wait for RestoreCIS to finish before touching SSH
-                \$maxWait = 300
-                \$waited = 0
-                while ((Get-ScheduledTask -TaskName 'RestoreCISPolicies' -ErrorAction SilentlyContinue).State -eq 'Running') {
-                  Write-Output \"Waiting for RestoreCIS to complete... (\$waited s)\"
-                  Start-Sleep -Seconds 10
-                  \$waited += 10
-                  if (\$waited -ge \$maxWait) { Write-Output 'Timeout waiting for RestoreCIS'; break }
-                }
-                Write-Output 'RestoreCIS completed or not running. Proceeding with key injection.'
-
-                # Use user-specific authorized_keys to avoid admin group membership dependency
-                \$userSsh = 'C:\Users\sysadmin\.ssh'
-                if (-not (Test-Path \$userSsh)) { New-Item -ItemType Directory -Force -Path \$userSsh | Out-Null }
-                Set-Content -Path \"\$userSsh\authorized_keys\" -Value '$PUB_KEY' -Force
-                icacls.exe \"\$userSsh\authorized_keys\" /inheritance:r /grant 'sysadmin:(F)' /grant 'NT AUTHORITY\SYSTEM:(F)'
-
-                # Restart sshd to pick up the key with clean state
-                Restart-Service sshd -Force
-                Write-Output 'SSH key injected and sshd restarted.'
-              "
+              --scripts @/tmp/inject-ssh-key.ps1
 
             AUTO_SHUTDOWN_TIME=$(date -u -d '+2 hours' '+%H%M')
             echo "Auto-shutdown scheduled for ${AUTO_SHUTDOWN_TIME} UTC"
