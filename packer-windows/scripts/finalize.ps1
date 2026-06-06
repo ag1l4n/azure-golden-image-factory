@@ -36,7 +36,6 @@ $restoreScript = "$scriptsPath\RestoreCIS.ps1"
 @'
 Start-Transcript -Path "C:\Windows\Setup\Scripts\RestoreCIS.log"
 
-# RE-DEFINED: The function must exist inside the boot script process
 function Grant-KeyAccess {
     param($Path)
     if (Test-Path $Path) {
@@ -50,9 +49,24 @@ function Grant-KeyAccess {
 
 Unregister-ScheduledTask -TaskName 'RestoreCISPolicies' -Confirm:$false -ErrorAction SilentlyContinue
 
-# INTEGRATED: Grant permissions so we can overwrite Policies
 $sysPolicy = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System"
 Grant-KeyAccess $sysPolicy
+
+# Wait for Azure VM Agent to provision the local admin account before applying CIS policy
+Write-Output "Waiting for Azure VM Agent to provision the sysadmin account..."
+$accountWait = 0
+while ($accountWait -lt 600) {
+  if (Get-LocalUser -Name 'sysadmin' -ErrorAction SilentlyContinue) {
+    Write-Output "sysadmin account found after $accountWait seconds. Proceeding with CIS policy."
+    break
+  }
+  Write-Output "sysadmin not yet provisioned... ($accountWait s)"
+  Start-Sleep -Seconds 15
+  $accountWait += 15
+  if ($accountWait -ge 600) {
+    Write-Output "WARNING: sysadmin account never appeared after 600s. Proceeding anyway."
+  }
+}
 
 # 1. Apply Security Policy
 secedit.exe /configure /db $env:windir\security\local.sdb /cfg C:\Windows\Setup\Scripts\CIS-Gold-State.inf /overwrite /quiet
@@ -64,12 +78,9 @@ auditpol.exe /restore /file:C:\Windows\Setup\Scripts\CIS-Auditpol.csv
 regedit.exe /s C:\Windows\Setup\Scripts\CIS-Policies.reg
 
 # 4. Enforce Policy Refresh
-gpupdate /force /boot
+gpupdate /force
 if ($LASTEXITCODE -ne 0) { Write-Error "gpupdate failed!" }
 
-# =====================================================================
-# THE FIX: REPAIR SYSPREP OPENSSH CORRUPTION
-# =====================================================================
 Write-Output "Purging corrupted Sysprep SSH keys..."
 Remove-Item -Path "$env:ProgramData\ssh\ssh_host_*" -Force -Recurse -ErrorAction SilentlyContinue
 
@@ -85,7 +96,6 @@ Write-Output "Starting OpenSSH Server..."
 Set-Service -Name sshd -StartupType Automatic
 Start-Service -Name sshd
 
-# Punch through the CIS Firewall Lockdown
 $profiles = @("DomainProfile", "PrivateProfile", "PublicProfile")
 foreach ($prof in $profiles) {
     $path = "HKLM:\SOFTWARE\Policies\Microsoft\WindowsFirewall\$prof"

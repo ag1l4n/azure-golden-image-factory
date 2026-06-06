@@ -357,6 +357,11 @@ jobs:
             if ($waited -ge $maxWait) {
               Write-Output 'ERROR: sysadmin account never appeared. Aborting.'
               exit 1
+              # After the timeout, dump what accounts DO exist
+              Write-Output "--- Local users that DO exist ---"
+              Get-LocalUser | Select Name, Enabled, LastLogon | Format-Table
+              Write-Output "--- Azure VM Agent log ---"
+              Get-Content "C:\WindowsAzure\Logs\WaAppAgent.log" -Tail 30 -ErrorAction SilentlyContinue
             }
           }
           Write-Output "sysadmin account exists. Proceeding."
