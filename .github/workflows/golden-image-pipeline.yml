@@ -162,6 +162,7 @@ jobs:
           esac
 
       - name: Pre-Flight Marketplace Terms Acceptance
+        if: ${{ matrix.os == 'RHEL 9' || matrix.os == 'Rocky 9'}}
         run: |
           az vm image terms accept --urn resf:rockylinux-x86_64:9-base:latest || true
           az vm image terms accept --urn RedHat:RHEL:9-lvm:latest || true
@@ -380,8 +381,7 @@ jobs:
           }
 
           Set-Content -Path "$userSsh\authorized_keys" -Value 'SSH_PUBLIC_KEY_PLACEHOLDER' -Force
-
-          icacls.exe "$userSsh\authorized_keys" /inheritance:r /grant "*$sysadminSid:(F)" /grant 'NT AUTHORITY\SYSTEM:(F)'
+          icacls.exe "$userSsh\authorized_keys" /inheritance:r /grant "*$($sysadminSid):(F)" /grant 'NT AUTHORITY\SYSTEM:(F)'
 
           Restart-Service sshd -Force
           Write-Output "SSH key injected and sshd restarted."
