@@ -348,20 +348,19 @@ jobs:
         if: ${{ matrix.os == 'Windows Server 2022' }}
         run: |
           cat > /tmp/inject-ssh-key.ps1 << 'PSEOF'
-          $maxWait = 300
+          $maxWait = 600
           $waited = 0
           while (-not (Get-LocalUser -Name 'sysadmin' -ErrorAction SilentlyContinue)) {
             Write-Output "Waiting for sysadmin account to be created... ($waited s)"
-            Start-Sleep -Seconds 10
-            $waited += 10
+            Start-Sleep -Seconds 15
+            $waited += 15
             if ($waited -ge $maxWait) {
-              Write-Output 'ERROR: sysadmin account never appeared. Aborting.'
-              exit 1
-              # After the timeout, dump what accounts DO exist
+              Write-Output "ERROR: sysadmin account never appeared. Aborting."
               Write-Output "--- Local users that DO exist ---"
-              Get-LocalUser | Select Name, Enabled, LastLogon | Format-Table
+              Get-LocalUser | Select-Object Name, Enabled, LastLogon | Format-Table
               Write-Output "--- Azure VM Agent log ---"
               Get-Content "C:\WindowsAzure\Logs\WaAppAgent.log" -Tail 30 -ErrorAction SilentlyContinue
+              exit 1
             }
           }
           Write-Output "sysadmin account exists. Proceeding."
@@ -432,9 +431,12 @@ jobs:
             # Substitute the actual public key into the script
             sed -i "s|SSH_PUBLIC_KEY_PLACEHOLDER|${PUB_KEY}|g" /tmp/inject-ssh-key.ps1
 
+            echo "Waiting 120s for VM provisioning to stabilise before injecting SSH key..."
+            sleep 120
+
             az vm run-command invoke \
-              --resource-group ${{ env.AZURE_RG }} \
-              --name scan-${{ env.VM_SLUG }}-vm \
+              --resource-group rg-wbl-security-image-factory \
+              --name scan-windows-vm \
               --command-id RunPowerShellScript \
               --scripts @/tmp/inject-ssh-key.ps1
 
