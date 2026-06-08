@@ -96,17 +96,24 @@ Write-Output "Starting OpenSSH Server..."
 Set-Service -Name sshd -StartupType Automatic
 Start-Service -Name sshd
 
-$profiles = @("DomainProfile", "PrivateProfile", "PublicProfile")
-foreach ($prof in $profiles) {
-    $path = "HKLM:\SOFTWARE\Policies\Microsoft\WindowsFirewall\$prof"
-    if (Test-Path $path) { 
-        Set-ItemProperty -Path $path -Name "AllowLocalPolicyMerge" -Value 1 -Force 
-    }
+# After gpupdate completes, write SSH rule directly into GP registry
+# so it cannot be overridden by local policy merge restrictions
+Write-Output "Writing SSH firewall rule to GP registry path..."
+$gpFwPath = "HKLM:\SOFTWARE\Policies\Microsoft\WindowsFirewall\FirewallRules"
+if (-not (Test-Path $gpFwPath)) {
+    New-Item -Path $gpFwPath -Force | Out-Null
 }
+Set-ItemProperty -Path $gpFwPath `
+    -Name "Allow-SSH-Pipeline" `
+    -Value "v2.30|Action=Allow|Active=TRUE|Dir=In|Protocol=6|LPort=22|Name=Allow-SSH-Pipeline|" `
+    -Type String -Force
 
+# Remove the local store rule since GP path takes precedence
 Remove-NetFirewallRule -Name "Allow-SSH-Pipeline" -ErrorAction SilentlyContinue
-New-NetFirewallRule -Name "Allow-SSH-Pipeline" -DisplayName "Allow SSH Pipeline" -Enabled True -Direction Inbound -Protocol TCP -Action Allow -LocalPort 22 -Profile Any
 
+# Restart sshd after GP rule is in place
+Restart-Service sshd -Force
+Write-Output "SSH firewall rule written to GP store. sshd restarted."
 Stop-Transcript
 '@ | Out-File -FilePath $restoreScript -Encoding ASCII -Force
 
