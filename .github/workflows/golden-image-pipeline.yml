@@ -519,7 +519,7 @@ jobs:
               if ssh -o StrictHostKeyChecking=no \
                     -o ConnectTimeout=5 \
                     -i ~/.ssh/scanner_key \
-                    azureuser@"$VM_IP" exit 0 2>/dev/null; then
+                    sysadmin@"$VM_IP" exit 0 2>/dev/null; then
                 echo "SSH is up after attempt $i."
                 break
               fi
@@ -554,7 +554,7 @@ jobs:
             --name scan-${{ env.VM_SLUG }}-vm \
             --command-id RunPowerShellScript \
             --scripts "
-         N_     Write-Output '--- sshd service ---'
+              Write-Output '--- sshd service ---'
               Get-Service sshd | Select Name, Status, StartType | Format-List
 
               Write-Output '--- Port 22 listener ---'
