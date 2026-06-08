@@ -440,13 +440,29 @@ jobs:
             sed -i "s|SSH_PUBLIC_KEY_PLACEHOLDER|${PUB_KEY}|g" /tmp/inject-ssh-key.ps1
 
             echo "Waiting 120s for VM provisioning to stabilise before injecting SSH key..."
-            sleep 120
+            sleep 720
 
             az vm run-command invoke \
-              --resource-group rg-wbl-security-image-factory \
-              --name scan-windows-vm \
+              --resource-group ${{ env.AZURE_RG }} \
+              --name scan-${{ env.VM_SLUG }}-vm \
               --command-id RunPowerShellScript \
               --scripts @/tmp/inject-ssh-key.ps1
+
+            echo "Re-enforcing GP firewall rule post-injection..."
+            az vm run-command invoke \
+              --resource-group ${{ env.AZURE_RG }} \
+              --name scan-${{ env.VM_SLUG }}-vm \
+              --command-id RunPowerShellScript \
+              --scripts "
+                \$gpFwPath = 'HKLM:\SOFTWARE\Policies\Microsoft\WindowsFirewall\FirewallRules'
+                if (-not (Test-Path \$gpFwPath)) { New-Item -Path \$gpFwPath -Force | Out-Null }
+                Set-ItemProperty -Path \$gpFwPath \`
+                  -Name 'Allow-SSH-Pipeline' \`
+                  -Value 'v2.30|Action=Allow|Active=TRUE|Dir=In|Protocol=6|LPort=22|Name=Allow-SSH-Pipeline|' \`
+                  -Type String -Force
+                Restart-Service sshd -Force
+                Write-Output 'GP firewall rule re-enforced and sshd restarted.'
+              "
 
             AUTO_SHUTDOWN_TIME=$(date -u -d '+2 hours' '+%H%M')
             echo "Auto-shutdown scheduled for ${AUTO_SHUTDOWN_TIME} UTC"
