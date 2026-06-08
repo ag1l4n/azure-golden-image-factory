@@ -414,7 +414,7 @@ jobs:
               --name            scan-${{ env.VM_SLUG }}-vm \
               --image           "$IMAGE_ID" \
               --admin-username  azureuser \
-              --admin-password  "${{ env.WINDOWS_ADMIN_PASS }}" \
+              --admin-password  "$(openssl rand -base64 16)Aa1!" \
               --location        ${{ env.AZURE_LOCATION }} \
               --size            ${{ env.VM_SIZE }} \
               --nic-delete-option delete \
