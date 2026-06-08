@@ -413,7 +413,6 @@ jobs:
               --resource-group  ${{ env.AZURE_RG }} \
               --name            scan-${{ env.VM_SLUG }}-vm \
               --image           "$IMAGE_ID" \
-              --admin-password  "${{ env.WINDOWS_ADMIN_PASS }}" \
               --location        ${{ env.AZURE_LOCATION }} \
               --size            ${{ env.VM_SIZE }} \
               --nic-delete-option delete \
