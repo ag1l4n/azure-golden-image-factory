@@ -240,34 +240,28 @@ build {
     restart_check_command = "powershell -command \"& {Write-Output 'restarted'}\""
   }
 
+  provisioner "powershell" {
+    inline = [
+      "Write-Output 'Creating sysadmin local admin account...'",
+      "$pw = ConvertTo-SecureString '${var.local_admin_password}' -AsPlainText -Force",
+      "New-LocalUser -Name 'sysadmin' -Password $pw -PasswordNeverExpires -AccountNeverExpires -ErrorAction SilentlyContinue | Out-Null",
+      "Add-LocalGroupMember -Group 'Administrators' -Member 'sysadmin' -ErrorAction SilentlyContinue",
+      "Write-Output 'sysadmin created and added to Administrators.'",
+
+      # Manually create the profile directory structure
+      # Windows will flesh it out on first real login, but the directory
+      # existing is enough for the SSH key injection script to work
+      "New-Item -ItemType Directory -Force -Path 'C:\\Users\\sysadmin\\.ssh' | Out-Null",
+      "Write-Output 'Profile skeleton created at C:\\Users\\sysadmin'"
+    ]
+  }
+
   # Step 4.5 — Inject the extracted CIS Gold Standard configuration files.
   # This makes the .inf, .csv, and .reg files available to finalize.ps1
   # at C:\Windows\Setup\Scripts\ on the ephemeral VM.
   provisioner "file" {
     source      = "${path.root}/files/"
     destination = "C:/Windows/Setup/Scripts/"
-  }
-
-  provisioner "powershell" {
-    elevated_user     = build.User
-    elevated_password = build.Password
-    inline = [
-      # Create sysadmin as a local administrator
-      "Write-Output 'Creating sysadmin local admin account...'",
-      "New-LocalUser -Name 'sysadmin' -Password (ConvertTo-SecureString '${var.local_admin_password}' -AsPlainText -Force) -PasswordNeverExpires -AccountNeverExpires | Out-Null",
-      "Add-LocalGroupMember -Group 'Administrators' -Member 'sysadmin'",
-      "Write-Output 'sysadmin created and added to Administrators.'",
-
-      # Configure autologon profile creation by logging in once via a scheduled task
-      # This ensures C:\Users\sysadmin exists before sysprep
-      "Write-Output 'Forcing sysadmin profile creation...'",
-      "$action = New-ScheduledTaskAction -Execute 'cmd.exe' -Argument '/c echo profile_created'",
-      "$principal = New-ScheduledTaskPrincipal -UserId 'sysadmin' -LogonType Interactive -RunLevel Highest",
-      "Register-ScheduledTask -TaskName 'CreateSysadminProfile' -Action $action -Principal $principal -Force | Out-Null",
-      "Start-ScheduledTask -TaskName 'CreateSysadminProfile'",
-      "Start-Sleep -Seconds 10",
-      "Unregister-ScheduledTask -TaskName 'CreateSysadminProfile' -Confirm:$false -ErrorAction SilentlyContinue"
-    ]
   }
 
   # Step 5 — Apply WinRM-disabling CIS controls via direct registry writes.
