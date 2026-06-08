@@ -350,12 +350,12 @@ jobs:
           cat > /tmp/inject-ssh-key.ps1 << 'PSEOF'
           $maxWait = 600
           $waited = 0
-          while (-not (Get-LocalUser -Name 'azureuser' -ErrorAction SilentlyContinue)) {
-            Write-Output "Waiting for azureuser account to be created... ($waited s)"
+          while (-not (Get-LocalUser -Name 'sysadmin' -ErrorAction SilentlyContinue)) {
+            Write-Output "Waiting for sysadmin account to be created... ($waited s)"
             Start-Sleep -Seconds 15
             $waited += 15
             if ($waited -ge $maxWait) {
-              Write-Output "ERROR: azureuser account never appeared. Aborting."
+              Write-Output "ERROR: sysadmin account never appeared. Aborting."
               Write-Output "--- Local users that DO exist ---"
               Get-LocalUser | Select-Object Name, Enabled, LastLogon | Format-Table
               Write-Output "--- Azure VM Agent log ---"
@@ -363,7 +363,7 @@ jobs:
               exit 1
             }
           }
-          Write-Output "azureuser account exists. Proceeding."
+          Write-Output "sysadmin account exists. Proceeding."
 
           $waited = 0
           while ((Get-ScheduledTask -TaskName 'RestoreCISPolicies' -ErrorAction SilentlyContinue).State -eq 'Running') {
@@ -374,9 +374,9 @@ jobs:
           }
           Write-Output "RestoreCIS completed or not running. Proceeding with key injection."
 
-          $azureuserSid = (Get-LocalUser -Name 'azureuser').SID.Value
-          $profilePath = (Get-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\ProfileList\$azureuserSid" -ErrorAction SilentlyContinue).ProfileImagePath
-          if (-not $profilePath) { $profilePath = "C:\Users\azureuser" }
+          $sysadminSid = (Get-LocalUser -Name 'sysadmin').SID.Value
+          $profilePath = (Get-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\ProfileList\$sysadminSid" -ErrorAction SilentlyContinue).ProfileImagePath
+          if (-not $profilePath) { $profilePath = "C:\Users\sysadmin" }
           Write-Output "User profile path: $profilePath"
 
           $userSsh = "$profilePath\.ssh"
@@ -385,7 +385,7 @@ jobs:
           }
 
           Set-Content -Path "$userSsh\authorized_keys" -Value 'SSH_PUBLIC_KEY_PLACEHOLDER' -Force
-          icacls.exe "$userSsh\authorized_keys" /inheritance:r /grant "*$($azureuserSid):(F)" /grant 'NT AUTHORITY\SYSTEM:(F)'
+          icacls.exe "$userSsh\authorized_keys" /inheritance:r /grant "*$($sysadminSid):(F)" /grant 'NT AUTHORITY\SYSTEM:(F)'
           
           $sshProgramData = "$env:ProgramData\ssh"
           if (-not (Test-Path $sshProgramData)) {
@@ -413,8 +413,8 @@ jobs:
               --resource-group  ${{ env.AZURE_RG }} \
               --name            scan-${{ env.VM_SLUG }}-vm \
               --image           "$IMAGE_ID" \
-              --admin-username  azureuser \
-              --admin-password  "$(openssl rand -base64 16)Aa1!" \
+              --admin-username  sysadmin \
+              --admin-password  "${{ env.WINDOWS_ADMIN_PASS }}" \
               --location        ${{ env.AZURE_LOCATION }} \
               --size            ${{ env.VM_SIZE }} \
               --nic-delete-option delete \
@@ -502,7 +502,7 @@ jobs:
                     -o ConnectTimeout=5 \
                     -o BatchMode=yes \
                     -i ~/.ssh/scanner_key \
-                    azureuser@"$VM_IP" "echo ok" 2>/dev/null; then
+                    sysadmin@"$VM_IP" "echo ok" 2>/dev/null; then
                 echo "SSH key auth succeeded after attempt $i."
                 break
               fi
@@ -636,7 +636,7 @@ jobs:
           # Extended 10-attempt loop to outlast Azure provisioning delays
           for i in {1..10}; do
             SCAN_CMD="cinc-auditor exec https://github.com/dev-sec/windows-baseline"
-            SCAN_CMD="$SCAN_CMD -t ssh://azureuser@${VM_IP}"
+            SCAN_CMD="$SCAN_CMD -t ssh://sysadmin@${VM_IP}"
             SCAN_CMD="$SCAN_CMD -i ~/.ssh/scanner_key"
             SCAN_CMD="$SCAN_CMD --input server_role=member_server"
             SCAN_CMD="$SCAN_CMD --input domain_joined=false"

@@ -118,7 +118,6 @@ variable "local_admin_username" {
 variable "local_admin_password" {
   type      = string
   sensitive = true
-  default   = ""
 }
 
 variable "tags" {
@@ -150,7 +149,7 @@ locals {
     "-e", "ansible_winrm_transport=basic",
     "-e", "ansible_winrm_operation_timeout_sec=120",
     "-e", "ansible_winrm_read_timeout_sec=150",
-    "-e", "ansible_user=packer"
+    "-e", "ansible_user=${var.local_admin_username}"
   ]
 }
 
@@ -182,7 +181,8 @@ source "azure-arm" "win2022_cis_l1" {
   winrm_use_ssl  = true
   winrm_insecure = true
   winrm_timeout  = "30m"
-  winrm_username = "packer"
+  winrm_username = var.local_admin_username
+  winrm_password = var.local_admin_password
 
   shared_image_gallery_destination {
     gallery_name        = var.gallery_name
@@ -223,7 +223,7 @@ build {
   # the Ansible WinRM connection (18.9.102.2.2 and 18.9.103.1).
   provisioner "ansible" {
     playbook_file   = "${path.root}/../ansible/windows-cis-l1.yml"
-    user            = "packer"
+    user            = var.local_admin_username
     use_proxy       = false
     extra_arguments = concat(local.ansible_base_args, [
       "-e", "ansible_password=${build.Password}", # <--- THE FIX: Moved it here!
