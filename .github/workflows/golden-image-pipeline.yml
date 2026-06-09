@@ -303,13 +303,6 @@ jobs:
       - name: Build Golden Image (Linux)
         if: ${{ inputs.scan_only != true && matrix.os != 'Windows Server 2022' }}
         run: |
-          if [[ -z "$HW_ACCESS_KEY" ]]; then
-            echo "ERROR: HW_ACCESS_KEY is empty! GitHub is not passing the secret."
-            exit 1
-          else
-            echo "SUCCESS: HW_ACCESS_KEY is populated."
-          fi
-
           packer build \
             -force \
             -var "image_version=${{ needs.prepare.outputs.new_version }}" \
