@@ -432,28 +432,17 @@ jobs:
               --protocol Tcp
 
             # ────────────────────────────────────────────────────────────────
-            # THE FIX: Bulletproof SSH Injection & UAC Bypass
+            # THE FIX: Write script line-by-line (Immune to YAML indentation)
             # ────────────────────────────────────────────────────────────────
-            cat > /tmp/inject-ssh-key.ps1 << 'PSEOF'
-            Write-Output "Starting Pre-Scan Configuration..."
-
-            # 1. Bypass UAC token filtering so Cinc Auditor gets Admin rights over SSH
-            Set-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System" -Name "LocalAccountTokenFilterPolicy" -Value 1 -Force
-
-            # 2. Inject SSH Key with strict ASCII encoding (OpenSSH rejects ANSI)
-            $adminKeysPath = "$env:ProgramData\ssh\administrators_authorized_keys"
-            Set-Content -Path $adminKeysPath -Value 'SSH_PUBLIC_KEY_PLACEHOLDER' -Encoding Ascii -Force
-            
-            # 3. Apply perfect ACLs for Windows OpenSSH
-            icacls.exe $adminKeysPath /inheritance:r /grant '*S-1-5-18:(F)' /grant '*S-1-5-32-544:(F)' | Out-Null
-            
-            # 4. Disable StrictModes to prevent arbitrary permission drops
-            $sshdConfig = "$env:ProgramData\ssh\sshd_config"
-            (Get-Content $sshdConfig) -replace '(?m)^#?StrictModes yes', 'StrictModes no' | Set-Content $sshdConfig -Encoding Ascii
-
-            Restart-Service sshd -Force
-            Write-Output "SSH key injected and sshd restarted."
-            PSEOF
+            echo 'Write-Output "Starting Pre-Scan Configuration..."' > /tmp/inject-ssh-key.ps1
+            echo 'Set-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System" -Name "LocalAccountTokenFilterPolicy" -Value 1 -Force' >> /tmp/inject-ssh-key.ps1
+            echo '$adminKeysPath = "$env:ProgramData\ssh\administrators_authorized_keys"' >> /tmp/inject-ssh-key.ps1
+            echo 'Set-Content -Path $adminKeysPath -Value "SSH_PUBLIC_KEY_PLACEHOLDER" -Encoding Ascii -Force' >> /tmp/inject-ssh-key.ps1
+            echo 'icacls.exe $adminKeysPath /inheritance:r /grant "*S-1-5-18:(F)" /grant "*S-1-5-32-544:(F)" | Out-Null' >> /tmp/inject-ssh-key.ps1
+            echo '$sshdConfig = "$env:ProgramData\ssh\sshd_config"' >> /tmp/inject-ssh-key.ps1
+            echo '(Get-Content $sshdConfig) -replace "(?m)^#?StrictModes yes", "StrictModes no" | Set-Content $sshdConfig -Encoding Ascii' >> /tmp/inject-ssh-key.ps1
+            echo 'Restart-Service sshd -Force' >> /tmp/inject-ssh-key.ps1
+            echo 'Write-Output "SSH key injected and sshd restarted."' >> /tmp/inject-ssh-key.ps1
 
             PUB_KEY=$(cat ~/.ssh/scanner_key.pub)
             sed -i "s|SSH_PUBLIC_KEY_PLACEHOLDER|${PUB_KEY}|g" /tmp/inject-ssh-key.ps1
