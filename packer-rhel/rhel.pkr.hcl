@@ -55,7 +55,7 @@ source "huaweicloud-ecs" "rhel_cis" {
   source_image_name  = "Red Hat Enterprise Linux 9.0 64bit" 
   
   # VM Sizing (s6.large.2 is 2 vCPU, 4GB RAM)
-  instance_type      = "s6.large.2" 
+  flavor             = "s6.large.2" 
   
   # Networking
   vpc_id             = var.hw_vpc_id
