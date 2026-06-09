@@ -4,6 +4,12 @@
   become: yes
   
   vars:
+
+    cloud_provider: "{{ cloud_platform | default('azure') }}"
+    
+    # Platform-specific users
+    ssh_allowed_users: "{{ (cloud_provider == 'azure') | ternary('azureuser packer sysadmin', 'cloud-user packer sysadmin') }}"
+    
     # 1. Enable the Level 1 Baseline
     rhel9cis_level_1: true
     rhel9cis_level_2: false
@@ -55,7 +61,7 @@
       lineinfile:
         path: /etc/ssh/sshd_config
         regexp: '^AllowUsers'
-        line: 'AllowUsers azureuser packer sysadmin'
+        line: 'AllowUsers {{ ssh_allowed_users }}'
         state: present
 
     - name: Hardening V2 - Secure /tmp using tmpfs (CIS Bypass)
@@ -87,3 +93,10 @@
       user:
         name: root
         password: "$6$rounds=65536$randomsalt$SomeVeryLongRandomHashStringHereThatMeetsCISRequirements"
+
+    - name: Ensure cloud-init is enabled for Huawei Cloud
+      systemd:
+        name: cloud-init
+        enabled: yes
+        state: started
+      when: cloud_provider == 'huawei'
