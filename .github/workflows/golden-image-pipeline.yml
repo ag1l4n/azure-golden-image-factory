@@ -766,4 +766,6 @@ jobs:
             > **Windows note:** The report was retrieved from the pre-baked
             > `C:\CIS-Reports\` directory inside the deployed VM.
           fail_on_unmatched_files: false
-          files: ./reports/*-cis-report.html
+          files: |
+            ./reports/*-cis-report.html
+            ./reports/*-cis-report.json
