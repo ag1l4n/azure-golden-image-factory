@@ -301,6 +301,13 @@ jobs:
           HW_SUBNET_ID: ${{ secrets.HW_SUBNET_ID }}
           HW_SECURITY_GROUP_ID: ${{ secrets.HW_SECURITY_GROUP_ID }}
         run: |
+          if [[ -z "$HW_ACCESS_KEY" ]]; then
+            echo "ERROR: HW_ACCESS_KEY is empty! GitHub is not passing the secret."
+            exit 1
+          else
+            echo "SUCCESS: HW_ACCESS_KEY is populated."
+          fi
+
           packer build \
             -force \
             -var "image_version=${{ needs.prepare.outputs.new_version }}" \
