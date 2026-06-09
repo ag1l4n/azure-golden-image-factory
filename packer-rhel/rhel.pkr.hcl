@@ -5,7 +5,7 @@ packer {
       source  = "github.com/hashicorp/azure"
     }
     huaweicloud = {
-      version = ">= 1.6.0"
+      version = ">= 1.2.0"
       source  = "github.com/huaweicloud/huaweicloud"
     }
     ansible = {
