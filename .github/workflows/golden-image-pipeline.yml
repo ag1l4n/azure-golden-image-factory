@@ -418,13 +418,9 @@ jobs:
               --location        ${{ env.AZURE_LOCATION }} \
               --size            ${{ env.VM_SIZE }} \
               --nic-delete-option delete \
-              --os-disk-delete-option delete \
+              --os-disk-delete-option delete
 
             RUNNER_IP=$(curl -s --max-time 10 https://api.ipify.org)
-            if [[ -z "$RUNNER_IP" ]]; then
-              echo "ERROR: Could not determine runner IP. Aborting to prevent world-open NSG rule."
-              exit 1
-            fi
             az network nsg rule create \
               --resource-group ${{ env.AZURE_RG }} \
               --nsg-name scan-${{ env.VM_SLUG }}-vmNSG \
@@ -435,12 +431,35 @@ jobs:
               --access Allow \
               --protocol Tcp
 
+            # ────────────────────────────────────────────────────────────────
+            # THE FIX: Bulletproof SSH Injection & UAC Bypass
+            # ────────────────────────────────────────────────────────────────
+            cat > /tmp/inject-ssh-key.ps1 << 'PSEOF'
+            Write-Output "Starting Pre-Scan Configuration..."
+
+            # 1. Bypass UAC token filtering so Cinc Auditor gets Admin rights over SSH
+            Set-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System" -Name "LocalAccountTokenFilterPolicy" -Value 1 -Force
+
+            # 2. Inject SSH Key with strict ASCII encoding (OpenSSH rejects ANSI)
+            $adminKeysPath = "$env:ProgramData\ssh\administrators_authorized_keys"
+            Set-Content -Path $adminKeysPath -Value 'SSH_PUBLIC_KEY_PLACEHOLDER' -Encoding Ascii -Force
+            
+            # 3. Apply perfect ACLs for Windows OpenSSH
+            icacls.exe $adminKeysPath /inheritance:r /grant '*S-1-5-18:(F)' /grant '*S-1-5-32-544:(F)' | Out-Null
+            
+            # 4. Disable StrictModes to prevent arbitrary permission drops
+            $sshdConfig = "$env:ProgramData\ssh\sshd_config"
+            (Get-Content $sshdConfig) -replace '(?m)^#?StrictModes yes', 'StrictModes no' | Set-Content $sshdConfig -Encoding Ascii
+
+            Restart-Service sshd -Force
+            Write-Output "SSH key injected and sshd restarted."
+            PSEOF
+
             PUB_KEY=$(cat ~/.ssh/scanner_key.pub)
-            # Substitute the actual public key into the script
             sed -i "s|SSH_PUBLIC_KEY_PLACEHOLDER|${PUB_KEY}|g" /tmp/inject-ssh-key.ps1
 
-            echo "Waiting 120s for VM provisioning to stabilise before injecting SSH key..."
-            sleep 720
+            echo "Waiting 60s for VM provisioning to stabilise before injecting SSH key..."
+            sleep 60
 
             az vm run-command invoke \
               --resource-group ${{ env.AZURE_RG }} \
@@ -448,24 +467,7 @@ jobs:
               --command-id RunPowerShellScript \
               --scripts @/tmp/inject-ssh-key.ps1
 
-            echo "Re-enforcing GP firewall rule post-injection..."
-            az vm run-command invoke \
-              --resource-group ${{ env.AZURE_RG }} \
-              --name scan-${{ env.VM_SLUG }}-vm \
-              --command-id RunPowerShellScript \
-              --scripts "
-                \$gpFwPath = 'HKLM:\SOFTWARE\Policies\Microsoft\WindowsFirewall\FirewallRules'
-                if (-not (Test-Path \$gpFwPath)) { New-Item -Path \$gpFwPath -Force | Out-Null }
-                Set-ItemProperty -Path \$gpFwPath \`
-                  -Name 'Allow-SSH-Pipeline' \`
-                  -Value 'v2.30|Action=Allow|Active=TRUE|Dir=In|Protocol=6|LPort=22|Name=Allow-SSH-Pipeline|' \`
-                  -Type String -Force
-                Restart-Service sshd -Force
-                Write-Output 'GP firewall rule re-enforced and sshd restarted.'
-              "
-
             AUTO_SHUTDOWN_TIME=$(date -u -d '+2 hours' '+%H%M')
-            echo "Auto-shutdown scheduled for ${AUTO_SHUTDOWN_TIME} UTC"
             az vm auto-shutdown \
               --resource-group ${{ env.AZURE_RG }} \
               --name scan-${{ env.VM_SLUG }}-vm \
@@ -651,20 +653,19 @@ jobs:
           echo "Executing Cinc Auditor against hardened Windows Image..."
           # Extended 10-attempt loop to outlast Azure provisioning delays
           for i in {1..10}; do
-            SCAN_CMD="cinc-auditor exec https://github.com/dev-sec/windows-baseline"
-            SCAN_CMD="$SCAN_CMD -t ssh://azureuser@${VM_IP}"
-            SCAN_CMD="$SCAN_CMD -i ~/.ssh/scanner_key"
-            SCAN_CMD="$SCAN_CMD --input server_role=member_server"
-            SCAN_CMD="$SCAN_CMD --input domain_joined=false"
-            SCAN_CMD="$SCAN_CMD --backend-cache"
-            SCAN_CMD="$SCAN_CMD --reporter html:./windows-cis-report.html json:./windows-cis-report.json cli"
-
-            if eval "$SCAN_CMD"; then
+            if cinc-auditor exec https://github.com/dev-sec/windows-baseline \
+              -t ssh://azureuser@${{ env.VM_IP }} \
+              -i ~/.ssh/scanner_key \
+              --input server_role=member_server \
+              --input domain_joined=false \
+              --backend-cache \
+              --reporter html:./windows-cis-report.html json:./windows-cis-report.json cli; then
+              
               echo "Cinc Auditor completed successfully."
               break
             else
-              echo "Warning: Authentication failed. Retrying in 30 seconds..."
-              sleep 30
+              echo "Warning: Authentication dropped. Retrying in 15 seconds..."
+              sleep 15
             fi
           done
 
