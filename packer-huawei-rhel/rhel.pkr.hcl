@@ -76,3 +76,4 @@ build {
       cloud         = "huawei"
     }
   }
+}
