@@ -147,6 +147,15 @@ jobs:
       #     tenant-id: ${{ secrets.AZURE_TENANT_ID }}
       #     subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
+      - name: Authenticate to Huawei Cloud
+        if: ${{ inputs.scan_only != true && matrix.os != 'Windows Server 2022' }}
+        uses: huaweicloud/auth-action@v1.1.0
+        with:
+          access_key_id: ${{ secrets.HW_ACCESS_KEY }}
+          secret_access_key: ${{ secrets.HW_SECRET_KEY }}
+          project_id: ${{ secrets.HW_PROJECT_ID }}
+          region: 'my-kualalumpur-1'
+
       # ── BUG FIX: Resolve a short slug for use in Azure resource names ────
       - name: Resolve VM Slug
         run: |
@@ -296,14 +305,7 @@ jobs:
       - name: Build Golden Image (Linux)
         if: ${{ inputs.scan_only != true && matrix.os != 'Windows Server 2022' }}
         env:
-          HW_ACCESS_KEY: ${{ secrets.HW_ACCESS_KEY }}
-          HW_SECRET_KEY: ${{ secrets.HW_SECRET_KEY }}
-          HW_PROJECT_ID: ${{ secrets.HW_PROJECT_ID }}
-          
           # 2. Packer Variables (Required for your .pkr.hcl template)
-          PKR_VAR_hw_access_key: ${{ secrets.HW_ACCESS_KEY }}
-          PKR_VAR_hw_secret_key: ${{ secrets.HW_SECRET_KEY }}
-          PKR_VAR_hw_project_id: ${{ secrets.HW_PROJECT_ID }}
           PKR_VAR_hw_vpc_id: ${{ secrets.HW_VPC_ID }}
           PKR_VAR_hw_subnet_id: ${{ secrets.HW_SUBNET_ID }}
           PKR_VAR_hw_security_group_id: ${{ secrets.HW_SECURITY_GROUP_ID }}
