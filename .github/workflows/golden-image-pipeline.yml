@@ -130,15 +130,6 @@ jobs:
       PKR_VAR_client_secret: ${{ secrets.AZURE_CLIENT_SECRET }}
       PKR_VAR_tenant_id:     ${{ secrets.AZURE_TENANT_ID }}
 
-      PKR_VAR_hw_access_key: ${{ secrets.HW_ACCESS_KEY }}
-      PKR_VAR_hw_secret_key: ${{ secrets.HW_SECRET_KEY }}
-      PKR_VAR_hw_project_id: ${{ secrets.HW_PROJECT_ID }}
-          
-      # Keep your network vars as they are if you didn't change them in variables.pkr.hcl
-      HW_VPC_ID: ${{ secrets.HW_VPC_ID }}
-      HW_SUBNET_ID: ${{ secrets.HW_SUBNET_ID }}
-      HW_SECURITY_GROUP_ID: ${{ secrets.HW_SECURITY_GROUP_ID }}
-
     steps:
       - name: Checkout Code
         uses: actions/checkout@v3
@@ -302,6 +293,15 @@ jobs:
 
       - name: Build Golden Image (Linux)
         if: ${{ inputs.scan_only != true && matrix.os != 'Windows Server 2022' }}
+        env:
+          PKR_VAR_hw_access_key: ${{ secrets.HW_ACCESS_KEY }}
+          PKR_VAR_hw_secret_key: ${{ secrets.HW_SECRET_KEY }}
+          PKR_VAR_hw_project_id: ${{ secrets.HW_PROJECT_ID }}
+          
+          # THE FIX: Add PKR_VAR_ to the network variables
+          PKR_VAR_hw_vpc_id: ${{ secrets.HW_VPC_ID }}
+          PKR_VAR_hw_subnet_id: ${{ secrets.HW_SUBNET_ID }}
+          PKR_VAR_hw_security_group_id: ${{ secrets.HW_SECURITY_GROUP_ID }}
         run: |
           packer build \
             -force \

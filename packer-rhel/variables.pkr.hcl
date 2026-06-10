@@ -34,17 +34,14 @@ variable "image_version" {
 # --- HUAWEI CLOUD VARIABLES ---
 variable "hw_access_key" {
   type    = string
-  sensitive = true
 }
 
 variable "hw_secret_key" {
   type    = string
-  sensitive = true
 }
 
 variable "hw_project_id" {
   type    = string
-  sensitive = true
 }
 
 variable "hw_region" {
@@ -54,15 +51,12 @@ variable "hw_region" {
 
 variable "hw_vpc_id" {
   type    = string
-  sensitive = true
 }
 
 variable "hw_subnet_id" {
   type    = string
-  sensitive = true
 }
 
 variable "hw_security_group_id" {
   type    = string
-  sensitive = true
 }
