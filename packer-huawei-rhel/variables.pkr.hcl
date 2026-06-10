@@ -29,3 +29,9 @@ variable "hw_subnet_id" {
 variable "hw_security_group_id" {
   type    = string
 }
+
+variable "image_version" {
+  type        = string
+  description = "The dynamic version of the image injected by GitHub Actions"
+  default     = "1.0.0"
+}
