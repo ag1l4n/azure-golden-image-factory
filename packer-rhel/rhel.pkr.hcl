@@ -43,10 +43,10 @@ source "azure-arm" "rhel-cis" {
 }
 
 source "huaweicloud-ecs" "rhel_cis" {
-  # --- REMOVED access_key, secret_key, and project_id ---
-  # Packer will now implicitly use the session from huaweicloud/auth-action
-  
-  region             = "ap-southeast-3" # Hardcode or use a var here
+  access_key         = var.hw_access_key
+  secret_key         = var.hw_secret_key
+  project_id         = var.hw_project_id
+  region             = var.hw_region
   
   image_name         = "rhel9-cis-v${var.image_version}"
   source_image_name  = "Red Hat Enterprise Linux 9.0 64bit" 
