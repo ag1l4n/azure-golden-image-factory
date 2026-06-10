@@ -303,6 +303,12 @@ jobs:
           PKR_VAR_hw_subnet_id: ${{ secrets.HW_SUBNET_ID }}
           PKR_VAR_hw_security_group_id: ${{ secrets.HW_SECURITY_GROUP_ID }}
         run: |
+          # --- ADD THIS LENGTH CHECK ---
+          echo "Access Key Length: ${#PKR_VAR_hw_access_key} characters"
+          echo "Secret Key Length: ${#PKR_VAR_hw_secret_key} characters"
+          echo "Project ID Length: ${#PKR_VAR_hw_project_id} characters"
+          # -----------------------------
+            
           packer build \
             -force \
             -var "image_version=${{ needs.prepare.outputs.new_version }}" \
@@ -315,12 +321,6 @@ jobs:
       - name: Build Golden Image (Windows)
         if: ${{ inputs.scan_only != true && matrix.os == 'Windows Server 2022' }}
         run: |
-          # --- ADD THIS LENGTH CHECK ---
-          echo "Access Key Length: ${#PKR_VAR_hw_access_key} characters"
-          echo "Secret Key Length: ${#PKR_VAR_hw_secret_key} characters"
-          echo "Project ID Length: ${#PKR_VAR_hw_project_id} characters"
-          # -----------------------------
-            
           packer build \
             -force \
             -var "image_version=${{ needs.prepare.outputs.new_version }}" \
