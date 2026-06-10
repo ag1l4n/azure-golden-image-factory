@@ -258,6 +258,8 @@ jobs:
 
       - name: Packer Init
         if: ${{ inputs.scan_only != true }}
+        env:
+          PACKER_GITHUB_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: packer init .
         working-directory: >-
           ${{ matrix.os == 'Ubuntu 22.04'        && './packer-ubuntu'
@@ -308,7 +310,7 @@ jobs:
           echo "Secret Key Length: ${#PKR_VAR_hw_secret_key} characters"
           echo "Project ID Length: ${#PKR_VAR_hw_project_id} characters"
           # -----------------------------
-            
+
           packer build \
             -force \
             -var "image_version=${{ needs.prepare.outputs.new_version }}" \
