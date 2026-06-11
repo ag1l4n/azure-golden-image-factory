@@ -248,7 +248,7 @@ jobs:
         uses: hashicorp/setup-packer@v3.2.0
         with:
           version: 'latest'
-
+      
       - name: Install Ansible & WinRM dependencies (Windows only)
         if: ${{ inputs.scan_only != true && matrix.os_config.os == 'Windows Server 2022' }}
         run: |
