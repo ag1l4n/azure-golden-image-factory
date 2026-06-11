@@ -453,7 +453,7 @@ jobs:
               --cli-region="${{ vars.HW_LOCATION }}" \
               --server.name="scan-hw-rocky-vm" \
               --server.imageRef="$HW_IMAGE_ID" \
-              --server.flavorRef="s6.large.2" \
+              --server.flavorRef="c6.large.2" \
               --server.vpcid="${{ secrets.HW_VPC_ID }}" \
               --server.networks.0.uuid="${{ secrets.HW_SUBNET_ID }}" \
               --server.security_groups.0.id="${{ secrets.HW_SECURITY_GROUP_ID }}" \

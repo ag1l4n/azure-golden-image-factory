@@ -22,7 +22,7 @@ source "huaweicloud-ecs" "rocky_cis" {
 
   image_name         = "rocky9-cis-v${var.image_version}"
   source_image_name  = "Rocky Linux 9.0 64bit" 
-  flavor             = "s6.large.2" 
+  flavor             = "c6.large.2" 
   
   vpc_id             = var.hw_vpc_id
   subnets            = [var.hw_subnet_id]
