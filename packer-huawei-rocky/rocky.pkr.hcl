@@ -28,7 +28,7 @@ source "huaweicloud-ecs" "rocky_cis" {
   subnets            = [var.hw_subnet_id]
   security_groups    = [var.hw_security_group_id]
 
-  ssh_username       = "rocky"
+  ssh_username       = "linux"
 }
 
 build {
@@ -38,7 +38,7 @@ build {
 
   provisioner "ansible" {
     playbook_file   = "../ansible/rhel-hardening-playbook.yml"
-    user            = "rocky"
+    user            = "linux"
     use_proxy       = false
     extra_arguments = [
       "--extra-vars", "cloud_platform=huawei",
@@ -48,7 +48,7 @@ build {
 
   provisioner "ansible" {
     playbook_file = "../ansible/rhel-remediations-l1-VM_adjusted.yml"
-    user          = "rocky"
+    user          = "linux"
     use_proxy     = false
     extra_arguments = [
       "--extra-vars", "ansible_python_interpreter=/usr/bin/python3"
