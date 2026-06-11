@@ -18,7 +18,7 @@ source "huaweicloud-ecs" "rhel_cis" {
   region             = var.hw_region
   auth_url           = "https://iam.my-kualalumpur-1.alphaedge.tmone.com.my/v3"
   
-  insecure_skip_verify = true
+  insecure           = true
 
   image_name         = "rhel9-cis-v${var.image_version}"
   source_image_name  = "Red Hat Enterprise Linux 9.0 64bit" 
