@@ -1,7 +1,7 @@
 packer {
   required_plugins {
     huaweicloud = {
-      version = ">= 0.8.0"
+      version = ">= 1.2.0"
       source  = "github.com/huaweicloud/huaweicloud"
     }
     ansible = {
@@ -11,7 +11,7 @@ packer {
   }
 }
 
-source "huaweicloud-ecs" "rhel_cis" {
+source "huaweicloud-ecs" "rocky_cis" {
   access_key         = var.hw_access_key
   secret_key         = var.hw_secret_key
   project_id         = var.hw_project_id
@@ -20,8 +20,8 @@ source "huaweicloud-ecs" "rhel_cis" {
   
   insecure           = true
 
-  image_name         = "rhel9-cis-v${var.image_version}"
-  source_image_name  = "Red Hat Enterprise Linux 9.0 64bit" 
+  image_name         = "rocky9-cis-v${var.image_version}"
+  source_image_name  = "Rocky Linux 9.0 64bit" 
   flavor             = "s6.large.2" 
   
   vpc_id             = var.hw_vpc_id
@@ -33,7 +33,7 @@ source "huaweicloud-ecs" "rhel_cis" {
 
 build {
   sources = [
-    "source.huaweicloud-ecs.rhel_cis"
+    "source.huaweicloud-ecs.rocky_cis"
     ]
 
   provisioner "ansible" {
