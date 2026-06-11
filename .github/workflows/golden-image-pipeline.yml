@@ -101,9 +101,9 @@ jobs:
   # STAGE 2: BUILD & SCAN (Parallel Matrix)
   # ============================================================
   matrix-factory:
-    name: Build & Scan (${{ matrix.os }})
+    name: Build & Scan (${{ matrix.os_config.os }})
     needs: prepare
-    runs-on: ${{ matrix.runner }}
+    runs-on: ${{ matrix.os_config.runner }}
     strategy:
       fail-fast: false
       matrix:
@@ -125,14 +125,17 @@ jobs:
       PKR_VAR_local_admin_username:  sysadmin
       PKR_VAR_local_admin_password:  ${{ secrets.WINDOWS_LOCAL_ADMIN_PASSWORD }}
 
-      # ── Windows-specific: explicit SP credentials for long-running build ─
-      # These are read by windows-cis.pkr.hcl via PKR_VAR_* convention.
-      # Linux builds ignore these because their templates have no matching
-      # variables — Packer silently skips unrecognised PKR_VAR_* values.
       PKR_VAR_client_id:            ${{ secrets.AZURE_CLIENT_ID }}
       PKR_VAR_client_secret:        ${{ secrets.AZURE_CLIENT_SECRET }}
       PKR_VAR_tenant_id:            ${{ secrets.AZURE_TENANT_ID }}
       
+      # ── Huawei Cloud SDK variables (Required for pre-flight auth) ───────
+      HW_ACCESS_KEY:                ${{ secrets.HW_ACCESS_KEY }}
+      HW_SECRET_KEY:                ${{ secrets.HW_SECRET_KEY }}
+      HW_PROJECT_ID:                ${{ secrets.HW_PROJECT_ID }}
+      HW_LOCATION:                  ${{ vars.HW_LOCATION }}
+      
+      # ── Huawei Cloud Packer variables (Required for .pkr.hcl) ───────────
       PKR_VAR_hw_access_key:        ${{ secrets.HW_ACCESS_KEY }}
       PKR_VAR_hw_secret_key:        ${{ secrets.HW_SECRET_KEY }}
       PKR_VAR_hw_project_id:        ${{ secrets.HW_PROJECT_ID }}
@@ -144,45 +147,38 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v3
 
-      # ── OIDC login — used for all az cli steps throughout this job ───────
-      # For Linux Packer builds, this CLI session is also used by Packer
-      # (use_azure_cli_auth = true in those templates). For Windows, Packer
-      # authenticates independently via PKR_VAR_client_* above, so this
-      # session only needs to be alive for the az cli steps (VM create, NSG,
-      # teardown), not for the multi-hour Packer build itself.
       - name: Authenticate to Azure
-        if: ${{ matrix.os != 'Huawei RHEL 9' }}
+        if: ${{ matrix.os_config.os != 'Huawei RHEL 9' }}
         uses: azure/login@v3
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
-      # ── BUG FIX: Resolve a short slug for use in Azure resource names ────
       - name: Resolve VM Slug
         run: |
-          case "${{ matrix.os }}" in
+          case "${{ matrix.os_config.os }}" in
             "Ubuntu 22.04")        echo "VM_SLUG=ubuntu"  >> $GITHUB_ENV ;;
             "RHEL 9")              echo "VM_SLUG=rhel"    >> $GITHUB_ENV ;;
             "Rocky 9")             echo "VM_SLUG=rocky"   >> $GITHUB_ENV ;;
             "Windows Server 2022") echo "VM_SLUG=windows" >> $GITHUB_ENV ;;
             "Huawei RHEL 9")       echo "VM_SLUG=hw-rhel" >> $GITHUB_ENV ;;
             *)
-              echo "ERROR: Unrecognised OS '${{ matrix.os }}'"
+              echo "ERROR: Unrecognised OS '${{ matrix.os_config.os }}'"
               exit 1
               ;;
           esac
 
       - name: Pre-Flight Marketplace Terms Acceptance
-        if: ${{ matrix.os == 'RHEL 9' || matrix.os == 'Rocky 9'}}
+        if: ${{ matrix.os_config.os == 'RHEL 9' || matrix.os_config.os == 'Rocky 9'}}
         run: |
           az vm image terms accept --urn resf:rockylinux-x86_64:9-base:latest || true
           az vm image terms accept --urn RedHat:RHEL:9-lvm:latest || true
 
       - name: Ensure Compute Gallery Image Definition Exists
-        if: ${{ matrix.os != 'Huawei RHEL 9' }}
+        if: ${{ matrix.os_config.os != 'Huawei RHEL 9' }}
         run: |
-          case "${{ matrix.os }}" in
+          case "${{ matrix.os_config.os }}" in
             "Ubuntu 22.04")
               DEF_NAME="ubuntu-nvme-cis"
               OS_TYPE="Linux"
@@ -213,7 +209,7 @@ jobs:
               SKU="2022-datacenter-g2"
               ;;
             *)
-              echo "ERROR: Unrecognised OS '${{ matrix.os }}'"
+              echo "ERROR: Unrecognised OS '${{ matrix.os_config.os }}'"
               exit 1
               ;;
           esac
@@ -254,7 +250,7 @@ jobs:
           version: 'latest'
 
       - name: Install Ansible & WinRM dependencies (Windows only)
-        if: ${{ inputs.scan_only != true && matrix.os == 'Windows Server 2022' }}
+        if: ${{ inputs.scan_only != true && matrix.os_config.os == 'Windows Server 2022' }}
         run: |
           pip install \
             ansible~=9.0 \
@@ -264,7 +260,7 @@ jobs:
             jmespath
 
       - name: Install Ansible Galaxy roles (Windows Server 2022 only)
-        if: ${{ inputs.scan_only != true && matrix.os == 'Windows Server 2022' }}
+        if: ${{ inputs.scan_only != true && matrix.os_config.os == 'Windows Server 2022' }}
         working-directory: ./ansible
         run: |
           ansible-galaxy install -r requirements.yml --roles-path roles/
@@ -275,53 +271,36 @@ jobs:
           PACKER_GITHUB_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: packer init .
         working-directory: >-
-          ${{ matrix.os == 'Ubuntu 22.04'        && './packer-ubuntu'
-           || matrix.os == 'RHEL 9'              && './packer-rhel'
-           || matrix.os == 'Rocky 9'             && './packer-rocky'
-           || matrix.os == 'Huawei RHEL 9'       && './packer-huawei-rhel'
-           ||                                        './packer-windows' }}
+          ${{ matrix.os_config.os == 'Ubuntu 22.04'        && './packer-ubuntu'
+           || matrix.os_config.os == 'RHEL 9'              && './packer-rhel'
+           || matrix.os_config.os == 'Rocky 9'             && './packer-rocky'
+           || matrix.os_config.os == 'Huawei RHEL 9'       && './packer-huawei-rhel'
+           ||                                       './packer-windows' }}
 
-      # ── Re-authenticate immediately before the Windows Packer build ──────
-      # The OIDC token from the login step at the top of this job is valid
-      # for only ~5 minutes. By the time we reach this step for Windows
-      # (after pip install, Galaxy install, packer init), it has expired.
-      # The re-login here refreshes the az cli session used by the az steps
-      # that follow the build (VM deploy, scan, teardown).
-      # Packer itself uses PKR_VAR_client_* and does NOT depend on this
-      # session — this step is purely to keep az cli working post-build.
       - name: Re-authenticate to Azure (Windows — pre-build refresh)
-        if: ${{ inputs.scan_only != true && matrix.os == 'Windows Server 2022' }}
+        if: ${{ inputs.scan_only != true && matrix.os_config.os == 'Windows Server 2022' }}
         uses: azure/login@v3
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
-      # ── Build Golden Image ────────────────────────────────────────────────
-      # Windows: passes explicit SP credentials so Packer authenticates
-      #          independently of the OIDC session (which would expire during
-      #          the 60-90 min build). Also passes the image definition name
-      #          override and the tenant_id which OIDC builds don't need.
-      # Linux:   uses PKR_VAR_* env vars set in the job env block above;
-      #          those templates use use_azure_cli_auth = true and complete
-      #          well within the OIDC token lifetime.
-
 
       - name: Build Golden Image (Linux)
-        if: ${{ inputs.scan_only != true && matrix.os != 'Windows Server 2022' }}
+        if: ${{ inputs.scan_only != true && matrix.os_config.os != 'Windows Server 2022' }}
         run: |
           packer build \
             -force \
             -var "image_version=${{ needs.prepare.outputs.new_version }}" \
             .
         working-directory: >-
-          ${{ matrix.os == 'Ubuntu 22.04'  && './packer-ubuntu'
-           || matrix.os == 'RHEL 9'        && './packer-rhel'
-           || matrix.os == 'Huawei RHEL 9' && './packer-huawei-rhel'
-           ||                                 './packer-rocky' }}
+          ${{ matrix.os_config.os == 'Ubuntu 22.04'  && './packer-ubuntu'
+           || matrix.os_config.os == 'RHEL 9'        && './packer-rhel'
+           || matrix.os_config.os == 'Huawei RHEL 9' && './packer-huawei-rhel'
+           ||                                  './packer-rocky' }}
 
       - name: Build Golden Image (Windows)
-        if: ${{ inputs.scan_only != true && matrix.os == 'Windows Server 2022' }}
+        if: ${{ inputs.scan_only != true && matrix.os_config.os == 'Windows Server 2022' }}
         run: |
           packer build \
             -force \
@@ -344,7 +323,7 @@ jobs:
       - name: Resolve Target Image Name
         id: image
         run: |
-          case "${{ matrix.os }}" in
+          case "${{ matrix.os_config.os }}" in
             "Ubuntu 22.04")        echo "name=${{ inputs.ubuntu_image_name_override || 'ubuntu-nvme-cis' }}" >> $GITHUB_OUTPUT ;;
             "RHEL 9")              echo "name=${{ inputs.rhel_image_name_override   || 'rhel-nvme-cis'   }}" >> $GITHUB_OUTPUT ;;
             "Huawei RHEL 9")       echo "name=rhel9-cis-v${{ needs.prepare.outputs.new_version }}" >> $GITHUB_OUTPUT ;;            
@@ -352,12 +331,8 @@ jobs:
             "Windows Server 2022") echo "name=${{ inputs.windows_image_name_override || 'windows-server-2022-cis' }}" >> $GITHUB_OUTPUT ;;
           esac
 
-  #     # ── Re-authenticate before the scan phase ────────────────────────────
-  #     # After a 60-90 min Windows Packer build the az cli OIDC session has
-  #     # definitely expired. This refresh covers the VM deploy / scan / teardown
-  #     # steps that follow. For Linux builds the token is still fresh, but the
-  #     # re-login is harmless and keeps the logic uniform.
       - name: Re-authenticate to Azure (pre-scan refresh)
+        if: ${{ matrix.os_config.os != 'Huawei RHEL 9' }}
         uses: azure/login@v3
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
@@ -365,7 +340,7 @@ jobs:
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
       - name: Prepare SSH Key Injection Script
-        if: ${{ matrix.os == 'Windows Server 2022' }}
+        if: ${{ matrix.os_config.os == 'Windows Server 2022' }}
         run: |
           cat > /tmp/inject-ssh-key.ps1 << 'PSEOF'
           $maxWait = 600
@@ -419,21 +394,17 @@ jobs:
           Write-Output "SSH key injected and sshd restarted."
           PSEOF
           
-      - name: Install Huawei Cloud CLI
-        if: ${{ matrix.os == 'Huawei RHEL 9' }}
+      - name: Configure Huawei Cloud CLI
+        if: ${{ matrix.os_config.os == 'Huawei RHEL 9' }}
         run: |
-          pip install huaweicloudsdkcore huaweicloudsdkecs huaweicloudsdkims \
-            --break-system-packages
-          curl -sL https://ap-southeast-3.obs.myhuaweicloud.com/hcloud/hcloud_linux_amd64.tar.gz \
-            | tar -xz -C /usr/local/bin/
           hcloud configure set \
             --cli-access-key="${{ secrets.HW_ACCESS_KEY }}" \
             --cli-secret-key="${{ secrets.HW_SECRET_KEY }}" \
-            --cli-region="my-kualalumpur-1"
+            --cli-region="${{ vars.HW_LOCATION }}"
 
       - name: Deploy Ephemeral VM
         run: |
-          if [[ "${{ matrix.os }}" == "Huawei RHEL 9" ]]; then
+          if [[ "${{ matrix.os_config.os }}" == "Huawei RHEL 9" ]]; then
             # ── Huawei ECS deploy ────────────────────────────────────────
 
             cat > /tmp/get_hw_image.py << 'PYEOF'
@@ -446,21 +417,22 @@ jobs:
             print(imgs[0]['id'])
             PYEOF
 
-                        cat > /tmp/get_hw_ip.py << 'PYEOF'
+            cat > /tmp/get_hw_ip.py << 'PYEOF'
             import sys, json
 
             data = json.load(sys.stdin)
             for s in data.get('servers', []):
                 for addr_list in s.get('addresses', {}).values():
                     for addr in addr_list:
-                        if addr.get('OS-EXT-IPS:type') == 'floating':
+                        # Grab the private internal IP ('fixed') instead of public
+                        if addr.get('OS-EXT-IPS:type') == 'fixed':
                             print(addr['addr'])
                             sys.exit(0)
             sys.exit(1)
             PYEOF
 
             HW_IMAGE_ID=$(hcloud IMS ListImages \
-              --cli-region="my-kualalumpur-1" \
+              --cli-region="${{ vars.HW_LOCATION }}" \
               --name="rhel9-cis-v${{ needs.prepare.outputs.new_version }}" \
               | python3 /tmp/get_hw_image.py)
 
@@ -473,33 +445,30 @@ jobs:
             PUB_KEY=$(cat ~/.ssh/scanner_key.pub)
 
             hcloud ECS CreateKeypair \
-              --cli-region="my-kualalumpur-1" \
+              --cli-region="${{ vars.HW_LOCATION }}" \
               --KeyName="scanner-key-${{ github.run_number }}" \
               --PublicKey="$PUB_KEY"
 
             hcloud ECS CreatePostPaidServers \
-              --cli-region="my-kualalumpur-1" \
+              --cli-region="${{ vars.HW_LOCATION }}" \
               --server.name="scan-hw-rhel-vm" \
               --server.imageRef="$HW_IMAGE_ID" \
               --server.flavorRef="s6.large.2" \
               --server.vpcid="${{ secrets.HW_VPC_ID }}" \
               --server.networks.0.uuid="${{ secrets.HW_SUBNET_ID }}" \
               --server.security_groups.0.id="${{ secrets.HW_SECURITY_GROUP_ID }}" \
-              --server.key_name="scanner-key-${{ github.run_number }}" \
-              --server.publicip.eip.iptype="5_bgp" \
-              --server.publicip.eip.bandwidth.size=5 \
-              --server.publicip.eip.bandwidth.sharetype="PER"
+              --server.key_name="scanner-key-${{ github.run_number }}"
 
             echo "Waiting 60s for ECS instance to initialise..."
             sleep 60
 
             VM_IP=$(hcloud ECS ListServers \
-              --cli-region="my-kualalumpur-1" \
+              --cli-region="${{ vars.HW_LOCATION }}" \
               --name="scan-hw-rhel-vm" \
               | python3 /tmp/get_hw_ip.py)
 
             if [[ -z "$VM_IP" ]]; then
-              echo "ERROR: Could not retrieve Huawei VM public IP."
+              echo "ERROR: Could not retrieve Huawei VM private IP."
               exit 1
             fi
             echo "Huawei VM IP: $VM_IP"
@@ -513,7 +482,7 @@ jobs:
               --gallery-image-definition ${{ steps.image.outputs.name }} \
               --query id --output tsv)
 
-            if [[ "${{ matrix.os }}" == "Windows Server 2022" ]]; then
+            if [[ "${{ matrix.os_config.os }}" == "Windows Server 2022" ]]; then
               az vm create \
                 --resource-group  ${{ env.AZURE_RG }} \
                 --name            scan-${{ env.VM_SLUG }}-vm \
@@ -564,7 +533,7 @@ jobs:
                 --name scan-${{ env.VM_SLUG }}-vm \
                 --time "$AUTO_SHUTDOWN_TIME"
 
-            elif [[ "${{ matrix.os }}" == "Rocky 9" ]]; then
+            elif [[ "${{ matrix.os_config.os }}" == "Rocky 9" ]]; then
               az vm create \
                 --resource-group  ${{ env.AZURE_RG }} \
                 --name            scan-${{ env.VM_SLUG }}-vm \
@@ -606,7 +575,7 @@ jobs:
 
       - name: Wait for SSH Connection
         run: |
-          if [[ "${{ matrix.os }}" == "Windows Server 2022" ]]; then
+          if [[ "${{ matrix.os_config.os }}" == "Windows Server 2022" ]]; then
             echo "Waiting for SSH key auth on Windows VM ($VM_IP)..."
             for i in {1..60}; do
               if ssh -o StrictHostKeyChecking=no \
@@ -624,7 +593,7 @@ jobs:
                 exit 1
               fi
             done
-          elif [[ "${{ matrix.os }}" == "Huawei RHEL 9" ]]; then
+          elif [[ "${{ matrix.os_config.os }}" == "Huawei RHEL 9" ]]; then
             for i in {1..20}; do
               if ssh -o StrictHostKeyChecking=no \
                     -o ConnectTimeout=5 \
@@ -664,7 +633,7 @@ jobs:
       # # ──────────────────────────────────────────────────────────────────────
       
       - name: Re-authenticate to Azure (Diagnostic)
-        if: failure() && matrix.os == 'Windows Server 2022'
+        if: failure() && matrix.os_config.os == 'Windows Server 2022'
         uses: azure/login@v3
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
@@ -672,7 +641,7 @@ jobs:
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
       - name: Diagnose SSH state inside VM (Windows only)
-        if: failure() && matrix.os == 'Windows Server 2022'
+        if: failure() && matrix.os_config.os == 'Windows Server 2022'
         run: |
           echo "SSH Wait loop failed! Checking sshd service state and firewall from inside the VM..."
 
@@ -697,7 +666,7 @@ jobs:
       # # ──────────────────────────────────────────────────────────────────────
 
       - name: Run Ubuntu OpenSCAP & Download Report
-        if: ${{ matrix.os == 'Ubuntu 22.04' }}
+        if: ${{ matrix.os_config.os == 'Ubuntu 22.04' }}
         run: |
           ssh -o StrictHostKeyChecking=no -i ~/.ssh/scanner_key \
               sysadmin@${{ env.VM_IP }} << 'EOF'
@@ -717,7 +686,7 @@ jobs:
             ./ubuntu-cis-report.html
       
       - name: Run Huawei RHEL OpenSCAP & Download Report
-        if: ${{ matrix.os == 'Huawei RHEL 9' }}
+        if: ${{ matrix.os_config.os == 'Huawei RHEL 9' }}
         run: |
           ssh -o StrictHostKeyChecking=no -i ~/.ssh/scanner_key \
               root@${{ env.VM_IP }} << 'EOF'
@@ -733,7 +702,7 @@ jobs:
             ./hw-rhel-cis-report.html
 
       - name: Run RHEL OpenSCAP & Download Report
-        if: ${{ matrix.os == 'RHEL 9' }}
+        if: ${{ matrix.os_config.os == 'RHEL 9' }}
         run: |
           ssh -o StrictHostKeyChecking=no -i ~/.ssh/scanner_key \
               sysadmin@${{ env.VM_IP }} << 'EOF'
@@ -750,7 +719,7 @@ jobs:
             ./rhel-cis-report.html
 
       - name: Run Rocky OpenSCAP & Download Report
-        if: ${{ matrix.os == 'Rocky 9' }}
+        if: ${{ matrix.os_config.os == 'Rocky 9' }}
         run: |
           ssh -o StrictHostKeyChecking=no -i ~/.ssh/scanner_key \
               sysadmin@${{ env.VM_IP }} << 'EOF'
@@ -767,7 +736,7 @@ jobs:
             ./rocky-cis-report.html
 
       - name: Run Cinc Auditor & Generate Multi-Format Reports (Windows)
-        if: ${{ matrix.os == 'Windows Server 2022' }}
+        if: ${{ matrix.os_config.os == 'Windows Server 2022' }}
         run: |
           echo "Installing Cinc Auditor..."
           curl -sL https://omnitruck.cinc.sh/install.sh | sudo bash -s -- -P cinc-auditor
@@ -810,7 +779,7 @@ jobs:
 
       # NEW: The 3rd Re-auth step. If the scan took 15 minutes, the Azure CLI token is dead!
       - name: Re-authenticate to Azure (Teardown)
-        if: always() && env.VM_IP != '' && matrix.os != 'Huawei RHEL 9'
+        if: always() && env.VM_IP != '' && matrix.os_config.os != 'Huawei RHEL 9'
         uses: azure/login@v3
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
@@ -818,7 +787,7 @@ jobs:
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
       - name: Destroy Ephemeral VM (Azure)
-        if: always() && env.VM_IP != '' && matrix.os != 'Huawei RHEL 9'
+        if: always() && env.VM_IP != '' && matrix.os_config.os != 'Huawei RHEL 9'
         run: |
           az vm delete \
             --resource-group ${{ env.AZURE_RG }} \
@@ -834,18 +803,17 @@ jobs:
             --name scan-${{ env.VM_SLUG }}-vmNSG || true
 
       - name: Destroy Ephemeral VM (Huawei)
-        if: always() && env.VM_IP != '' && matrix.os == 'Huawei RHEL 9'
+        if: always() && env.VM_IP != '' && matrix.os_config.os == 'Huawei RHEL 9'
         run: |
           hcloud ECS DeleteServers \
-            --cli-region="my-kualalumpur-1" \
+            --cli-region="${{ vars.HW_LOCATION }}" \
             --servers.0.id="$(hcloud ECS ListServers \
-              --cli-region=my-kualalumpur-1 \
+              --cli-region=${{ vars.HW_LOCATION }} \
               --name=scan-hw-rhel-vm \
               | python3 -c "import sys,json; print(json.load(sys.stdin)['servers'][0]['id'])")" \
-            --delete_publicip=true \
             --delete_volume=true || true
           hcloud ECS DeleteKeypair \
-            --cli-region="my-kualalumpur-1" \
+            --cli-region="${{ vars.HW_LOCATION }}" \
             --KeyName="scanner-key-${{ github.run_number }}" || true
 
       - name: Upload Report Artifact

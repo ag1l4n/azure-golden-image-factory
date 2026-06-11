@@ -24,9 +24,7 @@ source "huaweicloud-ecs" "rhel_cis" {
   vpc_id             = var.hw_vpc_id
   subnets            = [var.hw_subnet_id]
   security_groups    = [var.hw_security_group_id]
-  
-  eip_bandwidth_size = 5
-  eip_type           = "5_bgp"
+
   ssh_username       = "root"
 }
 
