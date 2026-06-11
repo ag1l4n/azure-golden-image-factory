@@ -274,7 +274,7 @@ jobs:
           ${{ matrix.os_config.os == 'Ubuntu 22.04'        && './packer-ubuntu'
            || matrix.os_config.os == 'RHEL 9'              && './packer-rhel'
            || matrix.os_config.os == 'Rocky 9'             && './packer-rocky'
-           || matrix.os_config.os == 'Huawei Rocky 9'       && './packer-huawei-rhel'
+           || matrix.os_config.os == 'Huawei Rocky 9'       && './packer-huawei-rocky'
            ||                                       './packer-windows' }}
 
       - name: Re-authenticate to Azure (Windows — pre-build refresh)
