@@ -84,17 +84,17 @@ jobs:
         run: |
           CHOICE="${{ inputs.os_choice }}"
           if [[ -z "$CHOICE" || "$CHOICE" == "all" ]]; then
-            echo 'matrix=["Ubuntu 22.04", "RHEL 9", "Rocky 9", "Windows Server 2022"]' >> $GITHUB_OUTPUT
-          elif [[ "$CHOICE" == "Ubuntu 22.04" ]]; then
-            echo 'matrix=["Ubuntu 22.04"]' >> $GITHUB_OUTPUT
-          elif [[ "$CHOICE" == "RHEL 9" ]]; then
-            echo 'matrix=["RHEL 9"]' >> $GITHUB_OUTPUT
+            echo 'matrix=[{"os":"Ubuntu 22.04","runner":"ubuntu-latest"},{"os":"RHEL 9","runner":"ubuntu-latest"},{"os":"Rocky 9","runner":"ubuntu-latest"},{"os":"Windows Server 2022","runner":"ubuntu-latest"}]' >> $GITHUB_OUTPUT
           elif [[ "$CHOICE" == "Huawei RHEL 9" ]]; then
-            echo 'matrix=["Huawei RHEL 9"]' >> $GITHUB_OUTPUT
+            echo 'matrix=[{"os":"Huawei RHEL 9","runner":"self-hosted"}]' >> $GITHUB_OUTPUT
+          elif [[ "$CHOICE" == "Ubuntu 22.04" ]]; then
+            echo 'matrix=[{"os":"Ubuntu 22.04","runner":"ubuntu-latest"}]' >> $GITHUB_OUTPUT
+          elif [[ "$CHOICE" == "RHEL 9" ]]; then
+            echo 'matrix=[{"os":"RHEL 9","runner":"ubuntu-latest"}]' >> $GITHUB_OUTPUT
           elif [[ "$CHOICE" == "Rocky 9" ]]; then
-            echo 'matrix=["Rocky 9"]' >> $GITHUB_OUTPUT
+            echo 'matrix=[{"os":"Rocky 9","runner":"ubuntu-latest"}]' >> $GITHUB_OUTPUT
           elif [[ "$CHOICE" == "Windows Server 2022" ]]; then
-            echo 'matrix=["Windows Server 2022"]' >> $GITHUB_OUTPUT
+            echo 'matrix=[{"os":"Windows Server 2022","runner":"ubuntu-latest"}]' >> $GITHUB_OUTPUT
           fi
 
   # ============================================================
@@ -103,11 +103,11 @@ jobs:
   matrix-factory:
     name: Build & Scan (${{ matrix.os }})
     needs: prepare
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
       matrix:
-        os: ${{ fromJson(needs.prepare.outputs.matrix_config) }}
+        os_config: ${{ fromJson(needs.prepare.outputs.matrix_config) }}
 
     env:
       AZURE_RG:       ${{ vars.AZURE_RG }}
