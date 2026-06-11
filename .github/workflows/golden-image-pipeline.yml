@@ -824,6 +824,29 @@ jobs:
           name: ${{ env.VM_SLUG }}-report
           path: ./*-cis-report.*
 
+      # ──────────────────────────────────────────────────────────────────────
+      # TEARDOWN & RUNNER CLEANUP
+      # ──────────────────────────────────────────────────────────────────────
+
+      - name: Clean up Self-Hosted Runner State
+        if: always()
+        run: |
+          echo "Cleaning up temporary files to prevent state contamination..."
+          
+          # 1. Destroy the ephemeral SSH keys
+          rm -f ~/.ssh/scanner_key ~/.ssh/scanner_key.pub
+          
+          # 2. Remove the temporary Python & PowerShell deployment scripts
+          rm -f /tmp/get_hw_image.py /tmp/get_hw_ip.py /tmp/inject-ssh-key.ps1
+          
+          # 3. Clean up the generated compliance reports from the local workspace
+          rm -f ./*-cis-report.*
+          
+          # 4. (Optional but recommended) Prune leftover Packer crash logs
+          rm -f ./crash.log
+          
+          echo "Runner cleanup complete."
+
   # ============================================================
   # STAGE 3: PUBLISH (Tag & Release)
   # ============================================================
