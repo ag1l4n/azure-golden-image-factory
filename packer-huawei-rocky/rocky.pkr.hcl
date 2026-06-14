@@ -28,12 +28,30 @@ source "huaweicloud-ecs" "rocky_cis" {
   security_groups    = [var.hw_security_group_id]
 
   ssh_username       = "root"
+  ssh_password         = "PackerBuild123!@#"
+
+  user_data            = "#cloud-config\nbootcmd:\n  - echo 'root:PackerBuild123!@#' | chpasswd\n  - echo 'PermitRootLogin yes' > /etc/ssh/sshd_config.d/00-packer-temp.conf\n  - echo 'PasswordAuthentication yes' >> /etc/ssh/sshd_config.d/00-packer-temp.conf\n  - systemctl restart sshd\n"
 }
 
 build {
   sources = [
     "source.huaweicloud-ecs.rocky_cis"
     ]
+
+  provisioner "shell" {
+    inline = [
+      "echo '--- Cleaning up temporary Packer SSH rules ---'",
+      "rm -f /etc/ssh/sshd_config.d/00-packer-temp.conf",
+      
+      "echo '--- Creating sysadmin user for the Pipeline Scanner ---'",
+      "useradd -m -s /bin/bash sysadmin || true",
+      "echo 'sysadmin ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/sysadmin",
+      
+      "echo '--- Fixing Cloud-Init to inject future keys into sysadmin ---'",
+      "mkdir -p /etc/cloud/cloud.cfg.d",
+      "echo -e 'system_info:\\n  default_user:\\n    name: sysadmin' > /etc/cloud/cloud.cfg.d/99-sysadmin.cfg"
+    ]
+  }
 
   provisioner "ansible" {
     playbook_file   = "../ansible/rhel-hardening-playbook.yml"
