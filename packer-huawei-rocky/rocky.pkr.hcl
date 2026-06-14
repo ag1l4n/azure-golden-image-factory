@@ -17,7 +17,6 @@ source "huaweicloud-ecs" "rocky_cis" {
   project_id         = var.hw_project_id
   region             = var.hw_region
   auth_url           = "https://iam.my-kualalumpur-1.alphaedge.tmone.com.my/v3"
-  
   insecure           = true
 
   image_name         = "rocky9-cis-v${var.image_version}"
@@ -28,7 +27,9 @@ source "huaweicloud-ecs" "rocky_cis" {
   subnets            = [var.hw_subnet_id]
   security_groups    = [var.hw_security_group_id]
 
-  ssh_username       = "linux"
+  ssh_username       = "cloud-user"
+
+  user_data            = "#cloud-config\nruncmd:\n  - update-crypto-policies --set LEGACY\n  - systemctl restart sshd\n"
 }
 
 build {
@@ -38,7 +39,7 @@ build {
 
   provisioner "ansible" {
     playbook_file   = "../ansible/rhel-hardening-playbook.yml"
-    user            = "linux"
+    user            = "cloud-user"
     use_proxy       = false
     extra_arguments = [
       "--extra-vars", "cloud_platform=huawei",
@@ -48,7 +49,7 @@ build {
 
   provisioner "ansible" {
     playbook_file = "../ansible/rhel-remediations-l1-VM_adjusted.yml"
-    user          = "linux"
+    user          = "cloud-user"
     use_proxy     = false
     extra_arguments = [
       "--extra-vars", "ansible_python_interpreter=/usr/bin/python3"
