@@ -8,7 +8,7 @@
     cloud_provider: "{{ cloud_platform | default('azure') }}"
     
     # Platform-specific users
-    ssh_allowed_users: "{{ (cloud_provider == 'azure') | ternary('azureuser packer sysadmin', 'cloud-user packer sysadmin') }}"
+    ssh_allowed_users: "{{ (cloud_provider == 'azure') | ternary('azureuser packer sysadmin root', 'cloud-user packer sysadmin root') }}"
     
     # 1. Enable the Level 1 Baseline
     rhel9cis_level_1: true
@@ -27,7 +27,7 @@
     rhel9cis_rule_5_2_4: false    # Allow passwordless sudo for packer
     rhel9cis_rule_5_3_1: true    
     rhel9cis_rule_5_3_2: true    
-    rhel9cis_sshd_allow_users: "packer azureuser rocky linux"
+    rhel9cis_sshd_allow_users: "packer azureuser rocky root"
 
     # 4. RHEL Specific Configurations (THE FIX)
     rhel9cis_authselect_custom_profile_name: "custom_cis_profile"
