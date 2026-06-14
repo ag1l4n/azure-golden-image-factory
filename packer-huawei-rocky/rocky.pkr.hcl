@@ -28,8 +28,6 @@ source "huaweicloud-ecs" "rocky_cis" {
   security_groups    = [var.hw_security_group_id]
 
   ssh_username       = "root"
-
-  user_data            = "#cloud-config\nruncmd:\n  - update-crypto-policies --set LEGACY\n  - systemctl restart sshd\n"
 }
 
 build {
