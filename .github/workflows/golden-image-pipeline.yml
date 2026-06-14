@@ -629,7 +629,13 @@ jobs:
       #         fi
       #       done
       #     fi
-
+  huawei-metadata-key-probe:
+    name: Diagnose Huawei Cloud-Init Key Injection
+    if: ${{ inputs.os_choice == 'Huawei Rocky 9' }}
+    runs-on: self-hosted
+    env:
+      HW_LOCATION: ${{ vars.HW_LOCATION }}
+    steps:
       - name: Generate probe SSH key
         run: ssh-keygen -t ed25519 -f ~/.ssh/probe_key -N ""
 
