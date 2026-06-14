@@ -599,7 +599,7 @@ jobs:
               if ssh -o StrictHostKeyChecking=no \
                     -o ConnectTimeout=5 \
                     -i ~/.ssh/scanner_key \
-                    sysadmin@"$VM_IP" exit 0 2>/dev/null; then   # <--- Changed root to sysadmin
+                    root@"$VM_IP" exit 0 2>/dev/null; then   # <--- Changed root to sysadmin
                 echo "SSH is up after attempt $i."
                 break
               fi

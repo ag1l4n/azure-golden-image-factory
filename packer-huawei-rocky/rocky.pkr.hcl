@@ -27,7 +27,7 @@ source "huaweicloud-ecs" "rocky_cis" {
   subnets            = [var.hw_subnet_id]
   security_groups    = [var.hw_security_group_id]
 
-  ssh_username       = "cloud-user"
+  ssh_username       = "root"
 
   user_data            = "#cloud-config\nruncmd:\n  - update-crypto-policies --set LEGACY\n  - systemctl restart sshd\n"
 }
@@ -39,7 +39,7 @@ build {
 
   provisioner "ansible" {
     playbook_file   = "../ansible/rhel-hardening-playbook.yml"
-    user            = "cloud-user"
+    user            = "root"
     use_proxy       = false
     extra_arguments = [
       "--extra-vars", "cloud_platform=huawei",
@@ -49,7 +49,7 @@ build {
 
   provisioner "ansible" {
     playbook_file = "../ansible/rhel-remediations-l1-VM_adjusted.yml"
-    user          = "cloud-user"
+    user          = "root"
     use_proxy     = false
     extra_arguments = [
       "--extra-vars", "ansible_python_interpreter=/usr/bin/python3"
