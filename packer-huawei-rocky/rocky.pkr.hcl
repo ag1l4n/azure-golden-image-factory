@@ -28,7 +28,7 @@ source "huaweicloud-ecs" "rocky_cis" {
   security_groups    = [var.hw_security_group_id]
 
   ssh_username       = "root"
-  ssh_password         = "PackerBuild123!@#"
+  ssh_interface      = "private"
 }
 
 build {
