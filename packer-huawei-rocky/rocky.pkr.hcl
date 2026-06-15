@@ -30,7 +30,7 @@ source "huaweicloud-ecs" "rocky_cis" {
   ssh_username       = "root"
   ssh_password         = "PackerBuild123!@#"
 
-  user_data            = "#cloud-config\nbootcmd:\n  - echo 'root:PackerBuild123!@#' | chpasswd\n  - echo 'PermitRootLogin yes' > /etc/ssh/sshd_config.d/00-packer-temp.conf\n  - echo 'PasswordAuthentication yes' >> /etc/ssh/sshd_config.d/00-packer-temp.conf\n  - systemctl restart sshd\n"
+  user_data            = "#cloud-config\nchpasswd:\n  list: |\n    root:PackerBuild123!\n  expire: False\nssh_pwauth: True\nruncmd:\n  - systemctl restart sshd\n"
 }
 
 build {
