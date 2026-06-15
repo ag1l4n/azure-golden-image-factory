@@ -27,10 +27,9 @@ source "huaweicloud-ecs" "rocky_cis" {
   subnets            = [var.hw_subnet_id]
   security_groups    = [var.hw_security_group_id]
 
-  ssh_username       = "root"
-  ssh_password         = "PackerBuild123!@#"
-
-  user_data            = "#cloud-config\nchpasswd:\n  list: |\n    root:PackerBuild123!\n  expire: False\nssh_pwauth: True\nruncmd:\n  - systemctl restart sshd\n"
+  ssh_username         = "root"
+  ssh_password         = "PackerBuild123!"
+  admin_pass           = "PackerBuild123!"
 }
 
 build {
