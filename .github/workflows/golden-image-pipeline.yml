@@ -289,6 +289,8 @@ jobs:
 
       - name: Build Golden Image (Linux)
         if: ${{ inputs.scan_only != true && matrix.os_config.os != 'Windows Server 2022' }}
+        env:
+          PACKER_LOG: "1"
         run: |
           packer build \
             -force \
