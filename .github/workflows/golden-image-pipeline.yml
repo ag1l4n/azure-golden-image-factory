@@ -294,7 +294,7 @@ jobs:
           chmod 600 /tmp/packer_hw_ed25519
           
           # Register the public key with Huawei Cloud as a named keypair
-hcloud ECS NovaCreateKeypair \
+          hcloud ECS NovaCreateKeypair \
             --cli-region="${{ vars.HW_LOCATION }}" \
             --keypair.name="packer-ed25519-${{ github.run_number }}" \
             --keypair.public_key="$(cat /tmp/packer_hw_ed25519.pub)"
