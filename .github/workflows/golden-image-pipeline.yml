@@ -146,103 +146,7 @@ jobs:
     steps:
       - name: Checkout Code
         uses: actions/checkout@v3
-      
-      - name: Pre-Flight Cleanup (Huawei Rocky 9)
-        if: ${{ matrix.os_config.os == 'Huawei Rocky 9' }}
-        run: |
-          echo "=== Cleaning up any residual state from previous runs ==="
-
-          # 1. Remove any leftover local keypair files
-          rm -f /tmp/packer_hw_ed25519 /tmp/packer_hw_ed25519.pub
-
-          # 2. Write Python helpers to temp files to avoid indentation issues
-          cat > /tmp/parse_keypairs.py << 'PYEOF'
-import sys, json
-data = json.load(sys.stdin)
-keypairs = data.get('keypairs', [])
-for kp in keypairs:
-    name = kp.get('keypair', {}).get('name', '')
-    if name.startswith('packer-ed25519-'):
-        print(name)
-PYEOF
-
-          cat > /tmp/parse_servers.py << 'PYEOF'
-import sys, json
-data = json.load(sys.stdin)
-for s in data.get('servers', []):
-    name = s.get('name', '')
-    sid  = s.get('id', '')
-    if name.startswith('packer_') or name.startswith('scan-hw-rocky'):
-        print(sid)
-PYEOF
-
-          cat > /tmp/parse_images.py << 'PYEOF'
-import sys, json
-data = json.load(sys.stdin)
-for img in data.get('images', []):
-    print(img['id'])
-PYEOF
-
-          # 3. Delete stale keypairs
-          echo "Fetching existing Huawei keypairs..."
-          EXISTING_KEYPAIRS=$(hcloud ECS ListKeypairs \
-            --cli-region="${{ vars.HW_LOCATION }}" \
-            | python3 /tmp/parse_keypairs.py 2>/dev/null || echo "")
-
-          if [[ -n "$EXISTING_KEYPAIRS" ]]; then
-            while IFS= read -r kp_name; do
-              echo "Deleting stale keypair: $kp_name"
-              hcloud ECS DeleteKeypair \
-                --cli-region="${{ vars.HW_LOCATION }}" \
-                --KeyName="$kp_name" || true
-            done <<< "$EXISTING_KEYPAIRS"
-          else
-            echo "No stale keypairs found."
-          fi
-
-          # 4. Delete stale ECS instances left from previous Packer runs
-          echo "Checking for stale Packer ECS instances..."
-          STALE_SERVERS=$(hcloud ECS ListServers \
-            --cli-region="${{ vars.HW_LOCATION }}" \
-            | python3 /tmp/parse_servers.py 2>/dev/null || echo "")
-
-          if [[ -n "$STALE_SERVERS" ]]; then
-            while IFS= read -r server_id; do
-              echo "Deleting stale server: $server_id"
-              hcloud ECS DeleteServers \
-                --cli-region="${{ vars.HW_LOCATION }}" \
-                --servers.0.id="$server_id" \
-                --delete_volume=true || true
-            done <<< "$STALE_SERVERS"
-            echo "Waiting 30s for server deletions to complete..."
-            sleep 30
-          else
-            echo "No stale servers found."
-          fi
-
-          # 5. Delete stale Packer images with the same version name
-          echo "Checking for stale Packer images..."
-          STALE_IMAGES=$(hcloud IMS ListImages \
-            --cli-region="${{ vars.HW_LOCATION }}" \
-            --name="rocky9-cis-v${{ needs.prepare.outputs.new_version }}" \
-            | python3 /tmp/parse_images.py 2>/dev/null || echo "")
-
-          if [[ -n "$STALE_IMAGES" ]]; then
-            while IFS= read -r image_id; do
-              echo "Deleting stale image: $image_id"
-              hcloud IMS DeleteImage \
-                --cli-region="${{ vars.HW_LOCATION }}" \
-                --image_id="$image_id" || true
-            done <<< "$STALE_IMAGES"
-          else
-            echo "No stale images found."
-          fi
-
-          # 6. Clean up any leftover temp files from previous runs
-          rm -f /tmp/get_hw_image.py /tmp/get_hw_ip.py
-          rm -f /tmp/inject-ssh-key.ps1
-
-          echo "=== Pre-flight cleanup complete ==="
+        
 
       - name: Authenticate to Azure
         if: ${{ matrix.os_config.os != 'Huawei Rocky 9' }}
@@ -528,25 +432,28 @@ PYEOF
             # ── Huawei ECS deploy ────────────────────────────────────────
 
             cat > /tmp/get_hw_image.py << 'PYEOF'
-import sys, json
-imgs = json.load(sys.stdin).get('images', [])
-if not imgs:
-    print("ERROR: No matching image found", file=sys.stderr)
-    sys.exit(1)
-print(imgs[0]['id'])
-PYEOF
+            import sys, json
+
+            imgs = json.load(sys.stdin).get('images', [])
+            if not imgs:
+                print("ERROR: No matching image found", file=sys.stderr)
+                sys.exit(1)
+            print(imgs[0]['id'])
+            PYEOF
 
             cat > /tmp/get_hw_ip.py << 'PYEOF'
-import sys, json
-data = json.load(sys.stdin)
-for s in data.get('servers', []):
-    for addr_list in s.get('addresses', {}).values():
-        for addr in addr_list:
-            if addr.get('OS-EXT-IPS:type') == 'fixed':
-                print(addr['addr'])
-                sys.exit(0)
-sys.exit(1)
-PYEOF
+            import sys, json
+
+            data = json.load(sys.stdin)
+            for s in data.get('servers', []):
+                for addr_list in s.get('addresses', {}).values():
+                    for addr in addr_list:
+                        # Grab the private internal IP ('fixed') instead of public
+                        if addr.get('OS-EXT-IPS:type') == 'fixed':
+                            print(addr['addr'])
+                            sys.exit(0)
+            sys.exit(1)
+            PYEOF
 
             HW_IMAGE_ID=$(hcloud IMS ListImages \
               --cli-region="${{ vars.HW_LOCATION }}" \
@@ -949,28 +856,19 @@ PYEOF
         if: always()
         run: |
           echo "Cleaning up temporary files to prevent state contamination..."
-
-          # 1. Destroy ephemeral SSH keys
+          
+          # 1. Destroy the ephemeral SSH keys
           rm -f ~/.ssh/scanner_key ~/.ssh/scanner_key.pub
-          rm -f /tmp/packer_hw_ed25519 /tmp/packer_hw_ed25519.pub
-
-          # 2. Remove all temporary scripts including pre-flight helpers
+          
+          # 2. Remove the temporary Python & PowerShell deployment scripts
           rm -f /tmp/get_hw_image.py /tmp/get_hw_ip.py /tmp/inject-ssh-key.ps1
-          rm -f /tmp/parse_keypairs.py /tmp/parse_servers.py /tmp/parse_images.py
-
-          # 3. Clean up compliance reports
+          
+          # 3. Clean up the generated compliance reports from the local workspace
           rm -f ./*-cis-report.*
-
-          # 4. Prune Packer crash logs
+          
+          # 4. (Optional but recommended) Prune leftover Packer crash logs
           rm -f ./crash.log
-
-          # 5. Delete the Packer keypair from Huawei Cloud
-          if [[ "${{ matrix.os_config.os }}" == "Huawei Rocky 9" ]]; then
-            hcloud ECS DeleteKeypair \
-              --cli-region="${{ vars.HW_LOCATION }}" \
-              --KeyName="packer-ed25519-${{ github.run_number }}" || true
-          fi
-
+          
           echo "Runner cleanup complete."
 
   # ============================================================
