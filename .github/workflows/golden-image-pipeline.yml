@@ -528,28 +528,25 @@ PYEOF
             # ── Huawei ECS deploy ────────────────────────────────────────
 
             cat > /tmp/get_hw_image.py << 'PYEOF'
-            import sys, json
-
-            imgs = json.load(sys.stdin).get('images', [])
-            if not imgs:
-                print("ERROR: No matching image found", file=sys.stderr)
-                sys.exit(1)
-            print(imgs[0]['id'])
-            PYEOF
+import sys, json
+imgs = json.load(sys.stdin).get('images', [])
+if not imgs:
+    print("ERROR: No matching image found", file=sys.stderr)
+    sys.exit(1)
+print(imgs[0]['id'])
+PYEOF
 
             cat > /tmp/get_hw_ip.py << 'PYEOF'
-            import sys, json
-
-            data = json.load(sys.stdin)
-            for s in data.get('servers', []):
-                for addr_list in s.get('addresses', {}).values():
-                    for addr in addr_list:
-                        # Grab the private internal IP ('fixed') instead of public
-                        if addr.get('OS-EXT-IPS:type') == 'fixed':
-                            print(addr['addr'])
-                            sys.exit(0)
-            sys.exit(1)
-            PYEOF
+import sys, json
+data = json.load(sys.stdin)
+for s in data.get('servers', []):
+    for addr_list in s.get('addresses', {}).values():
+        for addr in addr_list:
+            if addr.get('OS-EXT-IPS:type') == 'fixed':
+                print(addr['addr'])
+                sys.exit(0)
+sys.exit(1)
+PYEOF
 
             HW_IMAGE_ID=$(hcloud IMS ListImages \
               --cli-region="${{ vars.HW_LOCATION }}" \
@@ -957,8 +954,9 @@ PYEOF
           rm -f ~/.ssh/scanner_key ~/.ssh/scanner_key.pub
           rm -f /tmp/packer_hw_ed25519 /tmp/packer_hw_ed25519.pub
 
-          # 2. Remove temporary scripts
+          # 2. Remove all temporary scripts including pre-flight helpers
           rm -f /tmp/get_hw_image.py /tmp/get_hw_ip.py /tmp/inject-ssh-key.ps1
+          rm -f /tmp/parse_keypairs.py /tmp/parse_servers.py /tmp/parse_images.py
 
           # 3. Clean up compliance reports
           rm -f ./*-cis-report.*
