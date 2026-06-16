@@ -28,8 +28,8 @@ source "huaweicloud-ecs" "rocky_cis" {
   security_groups    = [var.hw_security_group_id]
 
   ssh_username         = "root"
-  ssh_private_key_file = "/tmp/packer_hw_ed25519"
-  temporary_key_pair_name = "packer-hw-rocky-${var.image_version}"
+  ssh_keypair_name     = var.keypair_name  
+  ssh_private_key_file = var.ssh_private_key_file
 }
 
 build {

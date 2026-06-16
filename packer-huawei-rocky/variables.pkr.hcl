@@ -36,8 +36,12 @@ variable "image_version" {
   default     = "1.0.0"
 }
 
-variable "ssh_public_key" {
-  type      = string
-  sensitive = false
-  default   = ""
+variable "ssh_private_key_file" {
+  type    = string
+  default = ""
+}
+
+variable "keypair_name" {
+  type    = string
+  default = ""
 }
