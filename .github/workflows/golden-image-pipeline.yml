@@ -294,7 +294,8 @@ jobs:
             --cli-access-key="${{ secrets.HW_ACCESS_KEY }}" \
             --cli-secret-key="${{ secrets.HW_SECRET_KEY }}" \
             --cli-project-id="${{ secrets.HW_PROJECT_ID }}" \
-            --cli-region="${{ vars.HW_LOCATION }}"
+            --cli-region="${{ vars.HW_LOCATION }}" \
+            --cli-skip-secure-verify=true
 
       - name: Generate ED25519 Keypair and Register with Huawei Cloud
         if: ${{ matrix.os_config.os == 'Huawei Rocky 9' }}
