@@ -290,7 +290,7 @@ jobs:
       - name: Configure Huawei Cloud CLI
         if: ${{ matrix.os_config.os == 'Huawei Rocky 9' }}
         run: |
-          hcloud configure set \
+          echo "y" | hcloud configure set \
             --cli-access-key="${{ secrets.HW_ACCESS_KEY }}" \
             --cli-secret-key="${{ secrets.HW_SECRET_KEY }}" \
             --cli-project-id="${{ secrets.HW_PROJECT_ID }}" \
