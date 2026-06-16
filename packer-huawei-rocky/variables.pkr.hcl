@@ -35,3 +35,9 @@ variable "image_version" {
   description = "The dynamic version of the image injected by GitHub Actions"
   default     = "1.0.0"
 }
+
+variable "ssh_public_key" {
+  type      = string
+  sensitive = false
+  default   = ""
+}

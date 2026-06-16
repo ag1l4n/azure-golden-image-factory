@@ -27,7 +27,9 @@ source "huaweicloud-ecs" "rocky_cis" {
   subnets            = [var.hw_subnet_id]
   security_groups    = [var.hw_security_group_id]
 
-  ssh_username       = "root"
+  ssh_username         = "rocky"
+  ssh_private_key_file = "/tmp/packer_hw_ed25519"
+  temporary_key_pair_name = "packer-hw-rocky-${var.image_version}"
 }
 
 build {
@@ -38,21 +40,21 @@ build {
   provisioner "shell" {
     inline = [
       "echo '--- Cleaning up temporary Packer SSH rules ---'",
-      "rm -f /etc/ssh/sshd_config.d/00-packer-temp.conf",
+      "sudo rm -f /etc/ssh/sshd_config.d/00-packer-temp.conf",
       
       "echo '--- Creating sysadmin user for the Pipeline Scanner ---'",
-      "useradd -m -s /bin/bash sysadmin || true",
-      "echo 'sysadmin ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/sysadmin",
+      "sudo useradd -m -s /bin/bash sysadmin || true",
+      "sudo echo 'sysadmin ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/sysadmin",
       
       "echo '--- Fixing Cloud-Init to inject future keys into sysadmin ---'",
-      "mkdir -p /etc/cloud/cloud.cfg.d",
-      "echo -e 'system_info:\\n  default_user:\\n    name: sysadmin' > /etc/cloud/cloud.cfg.d/99-sysadmin.cfg"
+      "sudo mkdir -p /etc/cloud/cloud.cfg.d",
+      "sudo echo -e 'system_info:\\n  default_user:\\n    name: sysadmin' > /etc/cloud/cloud.cfg.d/99-sysadmin.cfg"
     ]
   }
 
   provisioner "ansible" {
     playbook_file   = "../ansible/rhel-hardening-playbook.yml"
-    user            = "root"
+    user            = "rocky"
     use_proxy       = false
     extra_arguments = [
       "--extra-vars", "cloud_platform=huawei",
@@ -62,7 +64,7 @@ build {
 
   provisioner "ansible" {
     playbook_file = "../ansible/rhel-remediations-l1-VM_adjusted.yml"
-    user          = "root"
+    user          = "rcoky"
     use_proxy     = false
     extra_arguments = [
       "--extra-vars", "ansible_python_interpreter=/usr/bin/python3"

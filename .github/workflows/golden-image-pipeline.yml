@@ -286,6 +286,11 @@ jobs:
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
+      - name: Generate ED25519 Keypair for Packer (Huawei Rocky)
+        if: ${{ matrix.os_config.os == 'Huawei Rocky 9' }}
+        run: |
+          ssh-keygen -t ed25519 -f /tmp/packer_hw_ed25519 -N ""
+          chmod 600 /tmp/packer_hw_ed25519
 
       - name: Build Golden Image (Linux)
         if: ${{ inputs.scan_only != true && matrix.os_config.os != 'Windows Server 2022' }}
@@ -295,6 +300,7 @@ jobs:
           packer build \
             -force \
             -var "image_version=${{ needs.prepare.outputs.new_version }}" \
+            -var "ssh_public_key=$(cat /tmp/packer_hw_ed25519.pub)" \
             .
         working-directory: >-
           ${{ matrix.os_config.os == 'Ubuntu 22.04'  && './packer-ubuntu'
