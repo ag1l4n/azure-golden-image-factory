@@ -861,10 +861,6 @@ jobs:
           rm -f ~/.ssh/scanner_key ~/.ssh/scanner_key.pub
           rm -f /tmp/packer_hw_ed25519 /tmp/packer_hw_ed25519.pub
 
-          # 2. Remove all temporary scripts including pre-flight helpers
-          rm -f /tmp/get_hw_image.py /tmp/get_hw_ip.py /tmp/inject-ssh-key.ps1
-          rm -f /tmp/parse_keypairs.py /tmp/parse_servers.py /tmp/parse_images.py
-
           # 3. Clean up compliance reports
           rm -f ./*-cis-report.*
 
