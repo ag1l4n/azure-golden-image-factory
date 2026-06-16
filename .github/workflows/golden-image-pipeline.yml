@@ -287,6 +287,15 @@ jobs:
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
+      - name: Configure Huawei Cloud CLI
+        if: ${{ matrix.os_config.os == 'Huawei Rocky 9' }}
+        run: |
+          hcloud configure set \
+            --cli-access-key="${{ secrets.HW_ACCESS_KEY }}" \
+            --cli-secret-key="${{ secrets.HW_SECRET_KEY }}" \
+            --cli-project-id="${{ secrets.HW_PROJECT_ID }}" \
+            --cli-region="${{ vars.HW_LOCATION }}"
+
       - name: Generate ED25519 Keypair and Register with Huawei Cloud
         if: ${{ matrix.os_config.os == 'Huawei Rocky 9' }}
         run: |
