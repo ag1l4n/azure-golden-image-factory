@@ -45,3 +45,8 @@ variable "keypair_name" {
   type    = string
   default = ""
 }
+
+variable "user_data_file" {
+  type    = string
+  default = ""
+}

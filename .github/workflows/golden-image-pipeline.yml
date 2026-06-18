@@ -309,6 +309,21 @@ jobs:
             --keypair.name="packer-ed25519-${{ github.run_number }}" \
             --keypair.public_key="$(cat /tmp/packer_hw_ed25519.pub)"
 
+      - name: Prepare user_data with public key injection
+        if: ${{ matrix.os_config.os == 'Huawei Rocky 9' }}
+        run: |
+          PUB_KEY=$(cat /tmp/packer_hw_ed25519.pub)
+          cat > /tmp/hw_userdata.sh << UDEOF
+          #!/bin/bash
+          mkdir -p /root/.ssh
+          chmod 700 /root/.ssh
+          echo "${PUB_KEY}" >> /root/.ssh/authorized_keys
+          chmod 600 /root/.ssh/authorized_keys
+          restorecon -R /root/.ssh 2>/dev/null || true
+          UDEOF
+          chmod +x /tmp/hw_userdata.sh
+          echo "USERDATA_FILE=/tmp/hw_userdata.sh" >> $GITHUB_ENV
+      
       - name: Build Golden Image (Linux)
         if: ${{ inputs.scan_only != true && matrix.os_config.os != 'Windows Server 2022' }}
         env:
@@ -323,6 +338,7 @@ jobs:
             PACKER_ARGS+=(
               -var "keypair_name=packer-ed25519-${{ github.run_number }}"
               -var "ssh_private_key_file=/tmp/packer_hw_ed25519"
+              -var "user_data_file=/tmp/hw_userdata.sh"
             )
           fi
 

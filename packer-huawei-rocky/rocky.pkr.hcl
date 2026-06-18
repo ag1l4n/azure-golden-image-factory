@@ -30,12 +30,28 @@ source "huaweicloud-ecs" "rocky_cis" {
   ssh_username         = "root"
   ssh_keypair_name     = var.keypair_name  
   ssh_private_key_file = var.ssh_private_key_file
+  ssh_timeout          = "10m"
+  ssh_handshake_attempts = 50
+
+  user_data_file = var.user_data_file
+  user_data = <<-EOF
+    #!/bin/bash
+    mkdir -p /root/.ssh
+    chmod 700 /root/.ssh
+    # The actual public key will be injected via keypair mechanism,
+    # but we ensure the directory and permissions are correct
+    chmod 600 /root/.ssh/authorized_keys 2>/dev/null || true
+  EOF
 }
 
 build {
   sources = [
     "source.huaweicloud-ecs.rocky_cis"
     ]
+  
+  error-cleanup-provisioner "shell" {
+    inline = ["echo 'Build failed — VM kept alive for 10 minutes for debugging'", "sleep 600"]
+  }
 
   provisioner "shell" {
     inline = [
