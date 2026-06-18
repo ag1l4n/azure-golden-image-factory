@@ -84,6 +84,7 @@ build {
     inline = [
       "sudo cloud-init clean --logs",
       "sudo truncate -s 0 /etc/machine-id",
+      "sudo mkdir -p /var/lib/dbus",
       "sudo rm -f /var/lib/dbus/machine-id",
       "sudo ln -s /etc/machine-id /var/lib/dbus/machine-id",
       "sudo rm -f /root/.ssh/authorized_keys",
