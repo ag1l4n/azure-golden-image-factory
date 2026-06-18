@@ -31,6 +31,9 @@ source "huaweicloud-ecs" "rocky_cis" {
   ssh_timeout                   = "10m"
   ssh_handshake_attempts        = 50
 
+  eip_type           = "5_bgp"
+  eip_bandwidth_size = 5
+
   user_data_file = var.user_data_file
 }
 
