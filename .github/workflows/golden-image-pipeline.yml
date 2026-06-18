@@ -865,7 +865,6 @@ jobs:
 
           # 1. Destroy ephemeral SSH keys
           rm -f ~/.ssh/scanner_key ~/.ssh/scanner_key.pub
-          rm -f /tmp/packer_hw_ed25519 /tmp/packer_hw_ed25519.pub
 
           # 3. Clean up compliance reports
           rm -f ./*-cis-report.*
@@ -873,12 +872,6 @@ jobs:
           # 4. Prune Packer crash logs
           rm -f ./crash.log
 
-          # 5. Delete the Packer keypair from Huawei Cloud
-          if [[ "${{ matrix.os_config.os }}" == "Huawei Rocky 9" ]]; then
-            hcloud ECS NovaDeleteKeypair \
-              --cli-region="${{ vars.HW_LOCATION }}" \
-              --keypair_name="packer-ed25519-${{ github.run_number }}" || true
-          fi
 
           echo "Runner cleanup complete."
 

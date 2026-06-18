@@ -28,7 +28,6 @@ source "huaweicloud-ecs" "rocky_cis" {
   security_groups = [var.hw_security_group_id]
 
   ssh_username                  = "root"
-  ssh_temporary_key_pair_type   = "ed25519"   # Force ED25519 for the auto-managed keypair
   ssh_timeout                   = "10m"
   ssh_handshake_attempts        = 50
 
