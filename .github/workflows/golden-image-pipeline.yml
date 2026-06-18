@@ -313,15 +313,10 @@ jobs:
         if: ${{ matrix.os_config.os == 'Huawei Rocky 9' }}
         run: |
           PUB_KEY=$(cat /tmp/packer_hw_ed25519.pub)
-          cat > /tmp/hw_userdata.sh << UDEOF
-          #!/bin/bash
-          mkdir -p /root/.ssh
-          chmod 700 /root/.ssh
-          echo "${PUB_KEY}" >> /root/.ssh/authorized_keys
-          chmod 600 /root/.ssh/authorized_keys
-          restorecon -R /root/.ssh 2>/dev/null || true
-          UDEOF
+          printf '#!/bin/bash\nmkdir -p /root/.ssh\nchmod 700 /root/.ssh\necho "%s" >> /root/.ssh/authorized_keys\nchmod 600 /root/.ssh/authorized_keys\nrestorecon -R /root/.ssh 2>/dev/null || true\nsed -i "s/^#\\?PermitRootLogin.*/PermitRootLogin yes/" /etc/ssh/sshd_config\nsystemctl restart sshd\n' "$PUB_KEY" > /tmp/hw_userdata.sh
           chmod +x /tmp/hw_userdata.sh
+          echo "Verifying user_data contents:"
+          cat /tmp/hw_userdata.sh
           echo "USERDATA_FILE=/tmp/hw_userdata.sh" >> $GITHUB_ENV
       
       - name: Build Golden Image (Linux)
