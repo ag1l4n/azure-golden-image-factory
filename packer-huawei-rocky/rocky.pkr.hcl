@@ -12,26 +12,25 @@ packer {
 }
 
 source "huaweicloud-ecs" "rocky_cis" {
-  access_key         = var.hw_access_key
-  secret_key         = var.hw_secret_key
-  project_id         = var.hw_project_id
-  region             = var.hw_region
-  auth_url           = "https://iam.my-kualalumpur-1.alphaedge.tmone.com.my/v3"
-  insecure           = true
+  access_key  = var.hw_access_key
+  secret_key  = var.hw_secret_key
+  project_id  = var.hw_project_id
+  region      = var.hw_region
+  auth_url    = "https://iam.my-kualalumpur-1.alphaedge.tmone.com.my/v3"
+  insecure    = true
 
-  image_name         = "rocky9-cis-v${var.image_version}"
-  source_image_name  = "Rocky Linux 9.0 64bit" 
-  flavor             = "c6.large.2" 
-  
-  vpc_id             = var.hw_vpc_id
-  subnets            = [var.hw_subnet_id]
-  security_groups    = [var.hw_security_group_id]
+  image_name        = "rocky9-cis-v${var.image_version}"
+  source_image_name = "Rocky Linux 9.0 64bit"
+  flavor            = "c6.large.2"
 
-  ssh_username         = "root"
-  ssh_keypair_name     = var.keypair_name  
-  ssh_private_key_file = var.ssh_private_key_file
-  ssh_timeout          = "10m"
-  ssh_handshake_attempts = 50
+  vpc_id          = var.hw_vpc_id
+  subnets         = [var.hw_subnet_id]
+  security_groups = [var.hw_security_group_id]
+
+  ssh_username                  = "root"
+  ssh_temporary_key_pair_type   = "ed25519"   # Force ED25519 for the auto-managed keypair
+  ssh_timeout                   = "10m"
+  ssh_handshake_attempts        = 50
 
   user_data_file = var.user_data_file
 }

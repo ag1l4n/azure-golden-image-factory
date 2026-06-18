@@ -36,16 +36,6 @@ variable "image_version" {
   default     = "1.0.0"
 }
 
-variable "ssh_private_key_file" {
-  type    = string
-  default = ""
-}
-
-variable "keypair_name" {
-  type    = string
-  default = ""
-}
-
 variable "user_data_file" {
   type    = string
   default = ""

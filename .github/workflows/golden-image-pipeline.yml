@@ -297,23 +297,11 @@ jobs:
             --cli-region="${{ vars.HW_LOCATION }}" \
             --cli-skip-secure-verify=true
 
-      - name: Generate ED25519 Keypair and Register with Huawei Cloud
-        if: ${{ matrix.os_config.os == 'Huawei Rocky 9' }}
-        run: |
-          ssh-keygen -t ed25519 -f /tmp/packer_hw_ed25519 -N ""
-          chmod 600 /tmp/packer_hw_ed25519
-          
-          # Register the public key with Huawei Cloud as a named keypair
-          hcloud ECS NovaCreateKeypair \
-            --cli-region="${{ vars.HW_LOCATION }}" \
-            --keypair.name="packer-ed25519-${{ github.run_number }}" \
-            --keypair.public_key="$(cat /tmp/packer_hw_ed25519.pub)"
 
-      - name: Prepare user_data with public key injection
+      - name: Prepare user_data with PermitRootLogin fix
         if: ${{ matrix.os_config.os == 'Huawei Rocky 9' }}
         run: |
-          PUB_KEY=$(cat /tmp/packer_hw_ed25519.pub)
-          printf '#!/bin/bash\nmkdir -p /root/.ssh\nchmod 700 /root/.ssh\necho "%s" >> /root/.ssh/authorized_keys\nchmod 600 /root/.ssh/authorized_keys\nrestorecon -R /root/.ssh 2>/dev/null || true\nsed -i "s/^#\\?PermitRootLogin.*/PermitRootLogin yes/" /etc/ssh/sshd_config\nsystemctl restart sshd\n' "$PUB_KEY" > /tmp/hw_userdata.sh
+          printf '#!/bin/bash\nsed -i "s/^#\\?PermitRootLogin.*/PermitRootLogin yes/" /etc/ssh/sshd_config\nsystemctl restart sshd\n' > /tmp/hw_userdata.sh
           chmod +x /tmp/hw_userdata.sh
           echo "Verifying user_data contents:"
           cat /tmp/hw_userdata.sh
@@ -328,15 +316,11 @@ jobs:
             -force
             -var "image_version=${{ needs.prepare.outputs.new_version }}"
           )
-
           if [[ "${{ matrix.os_config.os }}" == "Huawei Rocky 9" ]]; then
             PACKER_ARGS+=(
-              -var "keypair_name=packer-ed25519-${{ github.run_number }}"
-              -var "ssh_private_key_file=/tmp/packer_hw_ed25519"
               -var "user_data_file=/tmp/hw_userdata.sh"
             )
           fi
-
           packer build "${PACKER_ARGS[@]}" .
         working-directory: >-
           ${{ matrix.os_config.os == 'Ubuntu 22.04'  && './packer-ubuntu'
