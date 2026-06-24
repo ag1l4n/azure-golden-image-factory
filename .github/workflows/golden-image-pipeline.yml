@@ -269,7 +269,12 @@ jobs:
         if: ${{ inputs.scan_only != true }}
         working-directory: ./ansible
         run: |
-          ansible-galaxy install -r requirements.yml --roles-path roles/
+          if [ -d "roles/ubuntu24-cis" ]; then
+            echo "Ansible roles already exist. Skipping download."
+          else
+            echo "Roles missing. Installing from requirements.yml..."
+            ansible-galaxy install -r requirements.yml --roles-path roles/
+          fi
 
       - name: Packer Init
         if: ${{ inputs.scan_only != true }}

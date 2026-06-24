@@ -54,7 +54,7 @@
         cache_valid_time: 3600
         
   roles:
-    - role: ubuntu22-cis
+    - role: ubuntu24-cis
 
   # THE GOLD STANDARD FIX: Disable internal firewalls so Azure NSG can take over
   post_tasks:
