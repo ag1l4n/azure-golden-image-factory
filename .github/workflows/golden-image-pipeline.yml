@@ -14,9 +14,10 @@ on:
           - all
           - Ubuntu 22.04
           - RHEL 9
-          - Huawei Rocky 9
           - Rocky 9
           - Windows Server 2022
+          - Huawei Rocky 9
+          - Huawei Ubuntu 24.04
       scan_only:
         description: 'Skip Packer Build (Run Compliance Scan Only)'
         required: true
@@ -95,6 +96,8 @@ jobs:
             echo 'matrix=[{"os":"Rocky 9","runner":"ubuntu-latest"}]' >> $GITHUB_OUTPUT
           elif [[ "$CHOICE" == "Windows Server 2022" ]]; then
             echo 'matrix=[{"os":"Windows Server 2022","runner":"ubuntu-latest"}]' >> $GITHUB_OUTPUT
+          elif [[ "$CHOICE" == "Huawei Ubuntu 24.04" ]]; then
+            echo 'matrix=[{"os":"Huawei Ubuntu 24.04","runner":"self-hosted"}]' >> $GITHUB_OUTPUT
           fi
 
   # ============================================================
@@ -149,7 +152,7 @@ jobs:
         
 
       - name: Authenticate to Azure
-        if: ${{ matrix.os_config.os != 'Huawei Rocky 9' }}
+        if: ${{ !startsWith(matrix.os_config.os, 'Huawei') }}
         uses: azure/login@v3
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
@@ -159,11 +162,12 @@ jobs:
       - name: Resolve VM Slug
         run: |
           case "${{ matrix.os_config.os }}" in
-            "Ubuntu 22.04")        echo "VM_SLUG=ubuntu"  >> $GITHUB_ENV ;;
-            "RHEL 9")              echo "VM_SLUG=rhel"    >> $GITHUB_ENV ;;
-            "Rocky 9")             echo "VM_SLUG=rocky"   >> $GITHUB_ENV ;;
-            "Windows Server 2022") echo "VM_SLUG=windows" >> $GITHUB_ENV ;;
-            "Huawei Rocky 9")       echo "VM_SLUG=hw-rocky" >> $GITHUB_ENV ;;
+            "Ubuntu 22.04")         echo "VM_SLUG=ubuntu"    >> $GITHUB_ENV ;;
+            "RHEL 9")               echo "VM_SLUG=rhel"      >> $GITHUB_ENV ;;
+            "Rocky 9")              echo "VM_SLUG=rocky"     >> $GITHUB_ENV ;;
+            "Windows Server 2022")  echo "VM_SLUG=windows"   >> $GITHUB_ENV ;;
+            "Huawei Rocky 9")       echo "VM_SLUG=hw-rocky"  >> $GITHUB_ENV ;;
+            "Huawei Ubuntu 24.04")  echo "VM_SLUG=hw-ubuntu" >> $GITHUB_ENV ;;
             *)
               echo "ERROR: Unrecognised OS '${{ matrix.os_config.os }}'"
               exit 1
@@ -177,7 +181,7 @@ jobs:
           az vm image terms accept --urn RedHat:RHEL:9-lvm:latest || true
 
       - name: Ensure Compute Gallery Image Definition Exists
-        if: ${{ matrix.os_config.os != 'Huawei Rocky 9' }}
+        if: ${{ !startsWith(matrix.os_config.os, 'Huawei') }}
         run: |
           case "${{ matrix.os_config.os }}" in
             "Ubuntu 22.04")
@@ -273,11 +277,12 @@ jobs:
           PACKER_GITHUB_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: packer init .
         working-directory: >-
-          ${{ matrix.os_config.os == 'Ubuntu 22.04'        && './packer-ubuntu'
-           || matrix.os_config.os == 'RHEL 9'              && './packer-rhel'
-           || matrix.os_config.os == 'Rocky 9'             && './packer-rocky'
+          ${{ matrix.os_config.os == 'Ubuntu 22.04'         && './packer-ubuntu'
+           || matrix.os_config.os == 'RHEL 9'               && './packer-rhel'
+           || matrix.os_config.os == 'Rocky 9'              && './packer-rocky'
            || matrix.os_config.os == 'Huawei Rocky 9'       && './packer-huawei-rocky'
-           ||                                       './packer-windows' }}
+           || matrix.os_config.os == 'Huawei Ubuntu 24.04'  && './packer-huawei-ubuntu'
+           ||                                                  './packer-windows' }}
 
       - name: Re-authenticate to Azure (Windows — pre-build refresh)
         if: ${{ inputs.scan_only != true && matrix.os_config.os == 'Windows Server 2022' }}
@@ -288,7 +293,7 @@ jobs:
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
       - name: Configure Huawei Cloud CLI
-        if: ${{ matrix.os_config.os == 'Huawei Rocky 9' }}
+        if: ${{ startsWith(matrix.os_config.os, 'Huawei') }}
         run: |
           echo "y" | hcloud configure set \
             --cli-access-key="${{ secrets.HW_ACCESS_KEY }}" \
@@ -299,7 +304,7 @@ jobs:
 
 
       - name: Prepare user_data with PermitRootLogin fix
-        if: ${{ matrix.os_config.os == 'Huawei Rocky 9' }}
+        if: ${{ startsWith(matrix.os_config.os, 'Huawei') }}
         run: |
           printf '#!/bin/bash\nsed -i "s/^#\\?PermitRootLogin.*/PermitRootLogin yes/" /etc/ssh/sshd_config\nsystemctl restart sshd\n' > /tmp/hw_userdata.sh
           chmod +x /tmp/hw_userdata.sh
@@ -323,10 +328,11 @@ jobs:
           fi
           packer build "${PACKER_ARGS[@]}" .
         working-directory: >-
-          ${{ matrix.os_config.os == 'Ubuntu 22.04'  && './packer-ubuntu'
-           || matrix.os_config.os == 'RHEL 9'        && './packer-rhel'
-           || matrix.os_config.os == 'Huawei Rocky 9' && './packer-huawei-rocky'
-           ||                                  './packer-rocky' }}
+          ${{ matrix.os_config.os == 'Ubuntu 22.04'         && './packer-ubuntu'
+           || matrix.os_config.os == 'RHEL 9'               && './packer-rhel'
+           || matrix.os_config.os == 'Huawei Rocky 9'       && './packer-huawei-rocky'
+           || matrix.os_config.os == 'Huawei Ubuntu 24.04'  && './packer-huawei-ubuntu'
+           ||                                                  './packer-rocky' }}
 
       - name: Build Golden Image (Windows)
         if: ${{ inputs.scan_only != true && matrix.os_config.os == 'Windows Server 2022' }}
@@ -353,15 +359,16 @@ jobs:
         id: image
         run: |
           case "${{ matrix.os_config.os }}" in
-            "Ubuntu 22.04")        echo "name=${{ inputs.ubuntu_image_name_override || 'ubuntu-nvme-cis' }}" >> $GITHUB_OUTPUT ;;
-            "RHEL 9")              echo "name=${{ inputs.rhel_image_name_override   || 'rhel-nvme-cis'   }}" >> $GITHUB_OUTPUT ;;
-            "Huawei Rocky 9")       echo "name=rocky9-cis-v${{ needs.prepare.outputs.new_version }}" >> $GITHUB_OUTPUT ;;            
-            "Rocky 9")             echo "name=${{ inputs.rocky_image_name_override  || 'rocky-nvme-cis'  }}" >> $GITHUB_OUTPUT ;;
-            "Windows Server 2022") echo "name=${{ inputs.windows_image_name_override || 'windows-server-2022-cis' }}" >> $GITHUB_OUTPUT ;;
+            "Ubuntu 22.04")         echo "name=${{ inputs.ubuntu_image_name_override  || 'ubuntu-nvme-cis' }}"         >> $GITHUB_OUTPUT ;;
+            "RHEL 9")               echo "name=${{ inputs.rhel_image_name_override    || 'rhel-nvme-cis'   }}"         >> $GITHUB_OUTPUT ;;
+            "Huawei Rocky 9")       echo "name=rocky9-cis-v${{ needs.prepare.outputs.new_version }}"                   >> $GITHUB_OUTPUT ;;            
+            "Rocky 9")              echo "name=${{ inputs.rocky_image_name_override   || 'rocky-nvme-cis'  }}"         >> $GITHUB_OUTPUT ;;
+            "Windows Server 2022")  echo "name=${{ inputs.windows_image_name_override || 'windows-server-2022-cis' }}" >> $GITHUB_OUTPUT ;;
+            "Huawei Ubuntu 24.04")  echo "name=hw-ubuntu22-cis-v${{ needs.prepare.outputs.new_version }}"              >> $GITHUB_OUTPUT ;;
           esac
 
       - name: Re-authenticate to Azure (pre-scan refresh)
-        if: ${{ matrix.os_config.os != 'Huawei Rocky 9' }}
+        if: ${{ !startsWith(matrix.os_config.os, 'Huawei') }}
         uses: azure/login@v3
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
@@ -433,7 +440,7 @@ jobs:
 
       - name: Deploy Ephemeral VM
         run: |
-          if [[ "${{ matrix.os_config.os }}" == "Huawei Rocky 9" ]]; then
+          if [[ "${{ matrix.os_config.os }}" == *"Huawei"* ]]; then
             # ── Huawei ECS deploy ────────────────────────────────────────
 
             cat > /tmp/get_hw_image.py << 'PYEOF'
@@ -462,7 +469,7 @@ jobs:
 
             HW_IMAGE_ID=$(hcloud IMS ListImages \
               --cli-region="${{ vars.HW_LOCATION }}" \
-              --name="rocky9-cis-v${{ needs.prepare.outputs.new_version }}" \
+              --name="${{ steps.image.outputs.name }}" \
               | python3 /tmp/get_hw_image.py)
 
             if [[ -z "$HW_IMAGE_ID" ]]; then
@@ -622,7 +629,7 @@ jobs:
                 exit 1
               fi
             done
-          elif [[ "${{ matrix.os_config.os }}" == "Huawei Rocky 9" ]]; then
+          elif [[ "${{ matrix.os_config.os }}" == *"Huawei"* ]]; then
             for i in {1..20}; do
               if ssh -o StrictHostKeyChecking=no \
                     -o ConnectTimeout=5 \
@@ -731,6 +738,26 @@ jobs:
             sysadmin@${{ env.VM_IP }}:/home/sysadmin/hw-rocky-cis-report.html \
             ./hw-rocky-cis-report.html
 
+      - name: Run Huawei Ubuntu OpenSCAP & Download Report
+        if: ${{ matrix.os_config.os == 'Huawei Ubuntu 24.04' }}
+        run: |
+          ssh -o StrictHostKeyChecking=no -i ~/.ssh/scanner_key \
+              sysadmin@${{ env.VM_IP }} << 'EOF'
+            sudo apt-get update -qq
+            sudo apt-get install -y libopenscap8 unzip wget
+            wget -q https://github.com/ComplianceAsCode/content/releases/download/v0.1.74/scap-security-guide-0.1.74.zip
+            unzip -q scap-security-guide-0.1.74.zip
+            sudo oscap xccdf eval \
+              --profile xccdf_org.ssgproject.content_profile_cis_level1_server \
+              --report /tmp/hw-ubuntu-cis-report.html \
+              scap-security-guide-0.1.74/ssg-ubuntu2204-ds.xml || true
+            sudo cp /tmp/hw-ubuntu-cis-report.html /home/sysadmin/
+            sudo chown sysadmin:sysadmin /home/sysadmin/hw-ubuntu-cis-report.html
+          EOF
+          scp -o StrictHostKeyChecking=no -i ~/.ssh/scanner_key \
+            sysadmin@${{ env.VM_IP }}:/home/sysadmin/hw-ubuntu-cis-report.html \
+            ./hw-ubuntu-cis-report.html
+
       - name: Run RHEL OpenSCAP & Download Report
         if: ${{ matrix.os_config.os == 'RHEL 9' }}
         run: |
@@ -809,7 +836,7 @@ jobs:
 
       # NEW: The 3rd Re-auth step. If the scan took 15 minutes, the Azure CLI token is dead!
       - name: Re-authenticate to Azure (Teardown)
-        if: always() && env.VM_IP != '' && matrix.os_config.os != 'Huawei Rocky 9'
+        if: always() && env.VM_IP != '' && ${{ !startsWith(matrix.os_config.os, 'Huawei') }}
         uses: azure/login@v3
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
@@ -817,7 +844,7 @@ jobs:
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
       - name: Destroy Ephemeral VM (Azure)
-        if: always() && env.VM_IP != '' && matrix.os_config.os != 'Huawei Rocky 9'
+        if: always() && env.VM_IP != '' && ${{ !startsWith(matrix.os_config.os, 'Huawei') }}
         run: |
           az vm delete \
             --resource-group ${{ env.AZURE_RG }} \
@@ -833,7 +860,7 @@ jobs:
             --name scan-${{ env.VM_SLUG }}-vmNSG || true
 
       - name: Destroy Ephemeral VM (Huawei)
-        if: always() && env.VM_IP != '' && matrix.os_config.os == 'Huawei Rocky 9'
+        if: always() && env.VM_IP != '' && ${{ startsWith(matrix.os_config.os, 'Huawei') }}
         run: |
           hcloud ECS DeleteServers \
             --cli-region="${{ vars.HW_LOCATION }}" \
