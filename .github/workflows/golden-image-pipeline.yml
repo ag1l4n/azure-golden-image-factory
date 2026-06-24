@@ -436,84 +436,68 @@ jobs:
           PSEOF
           
       - name: Configure Huawei Cloud CLI
-        if: ${{ matrix.os_config.os == 'Huawei Rocky 9' }}
+        if: ${{ startsWith(matrix.os_config.os, 'Huawei') }}
         run: |
           hcloud configure set \
             --cli-access-key="${{ secrets.HW_ACCESS_KEY }}" \
             --cli-secret-key="${{ secrets.HW_SECRET_KEY }}" \
             --cli-region="${{ vars.HW_LOCATION }}"
 
+      - name: Prepare user_data for Pipeline Scanner
+        if: ${{ startsWith(matrix.os_config.os, 'Huawei') }}
+        run: |
+          echo "--- Generating Cloud-Init for Ephemeral Scanner ---"
+          SCANNER_PUB_KEY=$(cat ~/.ssh/scanner_key.pub)
+          printf "#!/bin/bash\nmkdir -p /home/sysadmin/.ssh\necho '$SCANNER_PUB_KEY' >> /home/sysadmin/.ssh/authorized_keys\nchown -R sysadmin:sysadmin /home/sysadmin/.ssh\nchmod 700 /home/sysadmin/.ssh\nchmod 600 /home/sysadmin/.ssh/authorized_keys\n" > /tmp/hw_scan_userdata.sh
+          
+          # Optional: Verify it was created correctly in the logs
+          cat /tmp/hw_scan_userdata.sh
+
       - name: Deploy Ephemeral VM
         run: |
           if [[ "${{ matrix.os_config.os }}" == *"Huawei"* ]]; then
             # ── Huawei ECS deploy ────────────────────────────────────────
 
-            cat > /tmp/get_hw_image.py << 'PYEOF'
-            import sys, json
-
-            imgs = json.load(sys.stdin).get('images', [])
-            if not imgs:
-                print("ERROR: No matching image found", file=sys.stderr)
-                sys.exit(1)
-            print(imgs[0]['id'])
-            PYEOF
-
-            cat > /tmp/get_hw_ip.py << 'PYEOF'
-            import sys, json
-
-            data = json.load(sys.stdin)
-            for s in data.get('servers', []):
-                for addr_list in s.get('addresses', {}).values():
-                    for addr in addr_list:
-                        # Grab the private internal IP ('fixed') instead of public
-                        if addr.get('OS-EXT-IPS:type') == 'fixed':
-                            print(addr['addr'])
-                            sys.exit(0)
-            sys.exit(1)
-            PYEOF
-
+            echo "--- Fetching Target Image ID ---"
             HW_IMAGE_ID=$(hcloud IMS ListImages \
               --cli-region="${{ vars.HW_LOCATION }}" \
               --name="${{ steps.image.outputs.name }}" \
-              | python3 /tmp/get_hw_image.py)
+              --query "images[0].id" --output text)
 
-            if [[ -z "$HW_IMAGE_ID" ]]; then
-              echo "ERROR: Could not retrieve Huawei image ID."
+            if [ -z "$HW_IMAGE_ID" ] || [ "$HW_IMAGE_ID" == "None" ]; then
+              echo "ERROR: Target compliance image could not be found."
               exit 1
             fi
-            echo "Huawei image ID: $HW_IMAGE_ID"
 
-            PUB_KEY=$(cat ~/.ssh/scanner_key.pub)
-
-            hcloud ECS NovaCreateKeypair \
+            echo "--- Deploying Ephemeral Scanning Instance ---"
+            # Mimicking Packer configuration: flavor='c6.large.2', eip details, and network groupings
+            HW_VM_JSON=$(hcloud ECS CreateServer \
               --cli-region="${{ vars.HW_LOCATION }}" \
-              --keypair.name="scanner-key-${{ github.run_number }}" \
-              --keypair.public_key="$PUB_KEY"
-
-            hcloud ECS CreatePostPaidServers \
-              --cli-region="${{ vars.HW_LOCATION }}" \
-              --server.name="scan-hw-rocky-vm" \
+              --server.name="scan-ephemeral-${{ env.VM_SLUG }}" \
+              --server.flavor="c6.large.2" \
               --server.imageRef="$HW_IMAGE_ID" \
-              --server.flavorRef="c6.large.2" \
               --server.vpcid="${{ secrets.HW_VPC_ID }}" \
-              --server.networks.0.uuid="${{ secrets.HW_SUBNET_ID }}" \
-              --server.security_groups.0.id="${{ secrets.HW_SECURITY_GROUP_ID }}" \
-              --server.key_name="scanner-key-${{ github.run_number }}"
+              --server.nics='[{"subnet_id": "${{ secrets.HW_SUBNET_ID }}"}]' \
+              --server.security_groups='[{"id": "${{ secrets.HW_SECURITY_GROUP_ID }}"}]' \
+              --server.root_volume.volumetype="SAS" \
+              --server.root_volume.size=40 \
+              --server.publicip.eip.iptype="5_bgp" \
+              --server.publicip.eip.bandwidth.size=5 \
+              --server.publicip.eip.bandwidth.sharetype="PER" \
+              --server.publicip.eip.bandwidth.charging_mode="traffic" \
+              --output json)
 
-            echo "Waiting 60s for ECS instance to initialise..."
-            sleep 60
+            HW_JOB_ID=$(echo "$HW_VM_JSON" | python3 -c "import sys, json; print(json.load(sys.stdin).get('job_id', ''))")
+            
+            echo "Waiting for VM creation job $HW_JOB_ID to complete..."
+            # Insert your loop here to poll job status until SUCCESSful...
 
-            VM_IP=$(hcloud ECS ListServers \
-              --cli-region="${{ vars.HW_LOCATION }}" \
-              --name="scan-hw-rocky-vm" \
-              | python3 /tmp/get_hw_ip.py)
-
-            if [[ -z "$VM_IP" ]]; then
-              echo "ERROR: Could not retrieve Huawei VM private IP."
-              exit 1
-            fi
-            echo "Huawei VM IP: $VM_IP"
+            # Extract Instance ID and Floating IP
+            HW_SERVER_ID=$(hcloud ECS ListServers --name="scan-ephemeral-${{ env.VM_SLUG }}" --query "servers[0].id" --output text)
+            VM_IP=$(hcloud ECS ListServers --id="$HW_SERVER_ID" --query "servers[0].addresses.*[?type=='floating'].addr" --output text)
+            
             echo "VM_IP=$VM_IP" >> $GITHUB_ENV
+            echo "HW_SERVER_ID=$HW_SERVER_ID" >> $GITHUB_ENV
 
           else
             # ── Azure deploy ─────────────────────────────────────────────
