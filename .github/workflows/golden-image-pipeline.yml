@@ -131,13 +131,13 @@ jobs:
       PKR_VAR_client_id:            ${{ secrets.AZURE_CLIENT_ID }}
       PKR_VAR_client_secret:        ${{ secrets.AZURE_CLIENT_SECRET }}
       PKR_VAR_tenant_id:            ${{ secrets.AZURE_TENANT_ID }}
-      
+
       # ── Huawei Cloud SDK variables (Required for pre-flight auth) ───────
       HW_ACCESS_KEY:                ${{ secrets.HW_ACCESS_KEY }}
       HW_SECRET_KEY:                ${{ secrets.HW_SECRET_KEY }}
       HW_PROJECT_ID:                ${{ secrets.HW_PROJECT_ID }}
       HW_LOCATION:                  ${{ vars.HW_LOCATION }}
-      
+
       # ── Huawei Cloud Packer variables (Required for .pkr.hcl) ───────────
       PKR_VAR_hw_access_key:        ${{ secrets.HW_ACCESS_KEY }}
       PKR_VAR_hw_secret_key:        ${{ secrets.HW_SECRET_KEY }}
@@ -149,7 +149,6 @@ jobs:
     steps:
       - name: Checkout Code
         uses: actions/checkout@v3
-        
 
       - name: Authenticate to Azure
         if: ${{ !startsWith(matrix.os_config.os, 'Huawei') }}
@@ -244,7 +243,6 @@ jobs:
 
           echo "Definition '$DEF_NAME' created successfully."
 
-          
       # ──────────────────────────────────────────────────────────────────────
       # PACKER BUILD PHASE
       # ──────────────────────────────────────────────────────────────────────
@@ -254,7 +252,7 @@ jobs:
         uses: hashicorp/setup-packer@v3.2.0
         with:
           version: 'latest'
-      
+
       - name: Install Ansible & WinRM dependencies (Windows only)
         if: ${{ inputs.scan_only != true && matrix.os_config.os == 'Windows Server 2022' }}
         run: |
@@ -307,7 +305,6 @@ jobs:
             --cli-region="${{ vars.HW_LOCATION }}" \
             --cli-skip-secure-verify=true
 
-
       - name: Prepare user_data with PermitRootLogin fix
         if: ${{ inputs.scan_only != true && startsWith(matrix.os_config.os, 'Huawei') }}
         run: |
@@ -316,7 +313,7 @@ jobs:
           echo "Verifying user_data contents:"
           cat /tmp/hw_userdata.sh
           echo "USERDATA_FILE=/tmp/hw_userdata.sh" >> $GITHUB_ENV
-      
+
       - name: Build Golden Image (Linux)
         if: ${{ inputs.scan_only != true && matrix.os_config.os != 'Windows Server 2022' }}
         env:
@@ -366,10 +363,12 @@ jobs:
           case "${{ matrix.os_config.os }}" in
             "Ubuntu 22.04")         echo "name=${{ inputs.ubuntu_image_name_override  || 'ubuntu-nvme-cis' }}"         >> $GITHUB_OUTPUT ;;
             "RHEL 9")               echo "name=${{ inputs.rhel_image_name_override    || 'rhel-nvme-cis'   }}"         >> $GITHUB_OUTPUT ;;
-            "Huawei Rocky 9")       echo "name=rocky9-cis-v${{ needs.prepare.outputs.new_version }}"                   >> $GITHUB_OUTPUT ;;            
+            # ── FIXED: prefix now matches the actual IMS naming convention ──
+            "Huawei Rocky 9")       echo "name=rocky9-cis-v${{ needs.prepare.outputs.new_version }}"                   >> $GITHUB_OUTPUT ;;
             "Rocky 9")              echo "name=${{ inputs.rocky_image_name_override   || 'rocky-nvme-cis'  }}"         >> $GITHUB_OUTPUT ;;
             "Windows Server 2022")  echo "name=${{ inputs.windows_image_name_override || 'windows-server-2022-cis' }}" >> $GITHUB_OUTPUT ;;
-            "Huawei Ubuntu 24.04")  echo "name=hw-ubuntu24-cis-v${{ needs.prepare.outputs.new_version }}"              >> $GITHUB_OUTPUT ;;
+            # ── FIXED: was 'hw-ubuntu24-cis-v*', actual IMS name is 'ubuntu24.04-cis-v*' ──
+            "Huawei Ubuntu 24.04")  echo "name=ubuntu24.04-cis-v${{ needs.prepare.outputs.new_version }}"              >> $GITHUB_OUTPUT ;;
           esac
 
       - name: Re-authenticate to Azure (pre-scan refresh)
@@ -422,7 +421,7 @@ jobs:
 
           Set-Content -Path "$userSsh\authorized_keys" -Value 'SSH_PUBLIC_KEY_PLACEHOLDER' -Force
           icacls.exe "$userSsh\authorized_keys" /inheritance:r /grant "*$($azureuserSid):(F)" /grant 'NT AUTHORITY\SYSTEM:(F)'
-          
+
           $sshProgramData = "$env:ProgramData\ssh"
           if (-not (Test-Path $sshProgramData)) {
             New-Item -ItemType Directory -Force -Path $sshProgramData | Out-Null
@@ -434,8 +433,8 @@ jobs:
           Restart-Service sshd -Force
           Write-Output "SSH key injected and sshd restarted."
           PSEOF
-          
-      - name: Configure Huawei Cloud CLI
+
+      - name: Configure Huawei Cloud CLI (pre-scan)
         if: ${{ startsWith(matrix.os_config.os, 'Huawei') }}
         run: |
           hcloud configure set \
@@ -449,33 +448,49 @@ jobs:
           echo "--- Generating Cloud-Init for Ephemeral Scanner ---"
           SCANNER_PUB_KEY=$(cat ~/.ssh/scanner_key.pub)
           printf "#!/bin/bash\nmkdir -p /home/sysadmin/.ssh\necho '$SCANNER_PUB_KEY' >> /home/sysadmin/.ssh/authorized_keys\nchown -R sysadmin:sysadmin /home/sysadmin/.ssh\nchmod 700 /home/sysadmin/.ssh\nchmod 600 /home/sysadmin/.ssh/authorized_keys\n" > /tmp/hw_scan_userdata.sh
-          
-          # Optional: Verify it was created correctly in the logs
           cat /tmp/hw_scan_userdata.sh
 
       - name: Deploy Ephemeral VM
         run: |
           if [[ "${{ matrix.os_config.os }}" == *"Huawei"* ]]; then
-            
+
+            # ── Resolve IMS image ID with validation ──────────────────────
             IMAGE_NAME="${{ steps.image.outputs.name }}"
-            HW_IMAGE_ID=$(hcloud IMS ListImages \
+            echo "Resolving IMS image ID for: $IMAGE_NAME"
+
+            hcloud IMS ListImages \
               --cli-region="${{ vars.HW_LOCATION }}" \
               --name="$IMAGE_NAME" \
-              --output json | jq -r '.images[0].id')
+              --output json > /tmp/ims_list_output.json 2>&1 || true
 
-            if [[ -z "$HW_IMAGE_ID" || "$HW_IMAGE_ID" == "null" ]]; then
-              echo "ERROR: Could not resolve IMS image ID for '$IMAGE_NAME'"
+            echo "--- Raw hcloud IMS ListImages output ---"
+            cat /tmp/ims_list_output.json
+
+            if ! jq empty /tmp/ims_list_output.json 2>/dev/null; then
+              echo "ERROR: hcloud IMS ListImages did not return valid JSON."
               exit 1
             fi
 
-            echo "Resolved image: $IMAGE_NAME → $HW_IMAGE_ID"
+            HW_IMAGE_ID=$(jq -r '.images[0].id // empty' /tmp/ims_list_output.json)
+
+            if [[ -z "$HW_IMAGE_ID" ]]; then
+              echo "ERROR: No image found with name '$IMAGE_NAME' in region ${{ vars.HW_LOCATION }}"
+              echo "--- Available images ---"
+              hcloud IMS ListImages \
+                --cli-region="${{ vars.HW_LOCATION }}" \
+                --output json | jq -r '.images[] | "\(.name) (\(.id))"' 2>/dev/null || true
+              exit 1
+            fi
+
+            echo "Resolved: $IMAGE_NAME → $HW_IMAGE_ID"
             echo "HW_IMAGE_ID=$HW_IMAGE_ID" >> $GITHUB_ENV
 
+            # ── Deploy ephemeral scanning instance ────────────────────────
             echo "--- Deploying Ephemeral Scanning Instance ---"
             EPHEMERAL_NAME="scan-ephemeral-${{ env.VM_SLUG }}"
 
             hcloud ECS CreateServer \
-              --cli-region="my-kualalumpur-1" \
+              --cli-region="${{ vars.HW_LOCATION }}" \
               --server.name="$EPHEMERAL_NAME" \
               --server.flavor="c6.large.2" \
               --server.imageRef="$HW_IMAGE_ID" \
@@ -492,7 +507,7 @@ jobs:
               --output json > create_server_output.json
 
             if ! jq empty create_server_output.json 2>/dev/null; then
-              echo "ERROR: hcloud output is not valid JSON. Dumping output:"
+              echo "ERROR: hcloud ECS CreateServer did not return valid JSON. Dumping output:"
               cat create_server_output.json
               exit 1
             fi
@@ -502,7 +517,7 @@ jobs:
 
             for i in {1..30}; do
               STATUS=$(hcloud ECS GetJob \
-                --cli-region="my-kualalumpur-1" \
+                --cli-region="${{ vars.HW_LOCATION }}" \
                 --jobid="$HW_JOB_ID" \
                 --output json | jq -r '.status')
               echo "Job status: $STATUS (attempt $i/30)"
@@ -519,20 +534,21 @@ jobs:
             done
 
             HW_SERVER_ID=$(hcloud ECS ListServers \
-              --cli-region="my-kualalumpur-1" \
+              --cli-region="${{ vars.HW_LOCATION }}" \
               --name="$EPHEMERAL_NAME" \
               --output json | jq -r '.servers[0].id')
 
             VM_IP=$(hcloud ECS ListServers \
-              --cli-region="my-kualalumpur-1" \
+              --cli-region="${{ vars.HW_LOCATION }}" \
               --id="$HW_SERVER_ID" \
               --output json | jq -r '.servers[0].addresses | to_entries[0].value[0].addr')
 
             echo "VM_IP=$VM_IP" >> $GITHUB_ENV
             echo "HW_SERVER_ID=$HW_SERVER_ID" >> $GITHUB_ENV
             echo "EPHEMERAL_NAME=$EPHEMERAL_NAME" >> $GITHUB_ENV
+
           else
-            # ── Azure deploy ─────────────────────────────────────────────
+            # ── Azure deploy ──────────────────────────────────────────────
             IMAGE_ID=$(az sig image-definition show \
               --resource-group  ${{ env.AZURE_RG }} \
               --gallery-name    ${{ env.AZURE_GALLERY }} \
@@ -655,7 +671,7 @@ jobs:
               if ssh -o StrictHostKeyChecking=no \
                     -o ConnectTimeout=5 \
                     -i ~/.ssh/scanner_key \
-                    sysadmin@"$VM_IP" exit 0 2>/dev/null; then   # <--- Changed root to sysadmin
+                    sysadmin@"$VM_IP" exit 0 2>/dev/null; then
                 echo "SSH is up after attempt $i."
                 break
               fi
@@ -667,7 +683,6 @@ jobs:
               fi
             done
           else
-            # Linux wait logic unchanged
             for i in {1..20}; do
               if ssh -o StrictHostKeyChecking=no \
                     -o ConnectTimeout=5 \
@@ -685,10 +700,10 @@ jobs:
             done
           fi
 
-      # # ──────────────────────────────────────────────────────────────────────
-      # # DIAGNOSTIC DUMP (RUNS ONLY IF SSH FAILS)
-      # # ──────────────────────────────────────────────────────────────────────
-      
+      # ──────────────────────────────────────────────────────────────────────
+      # DIAGNOSTIC DUMP (RUNS ONLY IF SSH FAILS)
+      # ──────────────────────────────────────────────────────────────────────
+
       - name: Re-authenticate to Azure (Diagnostic)
         if: failure() && matrix.os_config.os == 'Windows Server 2022'
         uses: azure/login@v3
@@ -701,7 +716,6 @@ jobs:
         if: failure() && matrix.os_config.os == 'Windows Server 2022'
         run: |
           echo "SSH Wait loop failed! Checking sshd service state and firewall from inside the VM..."
-
           az vm run-command invoke \
             --resource-group ${{ env.AZURE_RG }} \
             --name scan-${{ env.VM_SLUG }}-vm \
@@ -709,18 +723,16 @@ jobs:
             --scripts "
               Write-Output '--- sshd service ---'
               Get-Service sshd | Select Name, Status, StartType | Format-List
-
               Write-Output '--- Port 22 listener ---'
               netstat -ano | Select-String ':22'
-
-              Write-Output '=== 4. CIS RESTORE LOG ==='
+              Write-Output '=== CIS RESTORE LOG ==='
               Get-Content C:\Windows\Setup\Scripts\RestoreCIS.log -ErrorAction SilentlyContinue
             " \
             --query value[0].message -o tsv || true
 
-      # # ──────────────────────────────────────────────────────────────────────
-      # # SCAN PHASE
-      # # ──────────────────────────────────────────────────────────────────────
+      # ──────────────────────────────────────────────────────────────────────
+      # SCAN PHASE
+      # ──────────────────────────────────────────────────────────────────────
 
       - name: Run Ubuntu OpenSCAP & Download Report
         if: ${{ matrix.os_config.os == 'Ubuntu 22.04' }}
@@ -741,29 +753,23 @@ jobs:
           scp -o StrictHostKeyChecking=no -i ~/.ssh/scanner_key \
             sysadmin@${{ env.VM_IP }}:/home/sysadmin/ubuntu-cis-report.html \
             ./ubuntu-cis-report.html
-      
+
       - name: Run Huawei Rocky OpenSCAP & Download Report
         if: ${{ matrix.os_config.os == 'Huawei Rocky 9' }}
         run: |
           ssh -o StrictHostKeyChecking=no -i ~/.ssh/scanner_key \
               sysadmin@${{ env.VM_IP }} << 'EOF'
-            sudo apt-get update -qq
-            sudo apt-get install -y libopenscap8 unzip wget
-            wget -q https://github.com/ComplianceAsCode/content/releases/download/v0.1.75/scap-security-guide-0.1.75.zip
-            unzip -q scap-security-guide-0.1.75.zip
-            
-            # Note the updated datastream file for 24.04
+            sudo dnf install -y openscap-scanner scap-security-guide
             sudo oscap xccdf eval \
               --profile xccdf_org.ssgproject.content_profile_cis_server_l1 \
-              --report /tmp/rocky-cis-report.html \
+              --report /tmp/hw-rocky-cis-report.html \
               /usr/share/xml/scap/ssg/content/ssg-rl9-ds.xml || true
-              
-            sudo cp /tmp/hw-rocky-2404-cis-report.html /home/sysadmin/
-            sudo chown sysadmin:sysadmin /home/sysadmin/hw-rocky-2404-cis-report.html
+            sudo cp /tmp/hw-rocky-cis-report.html /home/sysadmin/
+            sudo chown sysadmin:sysadmin /home/sysadmin/hw-rocky-cis-report.html
           EOF
           scp -o StrictHostKeyChecking=no -i ~/.ssh/scanner_key \
-            sysadmin@${{ env.VM_IP }}:/home/sysadmin/hw-rocky-2404-cis-report.html \
-            ./hw-rocky-2404-cis-report.html
+            sysadmin@${{ env.VM_IP }}:/home/sysadmin/hw-rocky-cis-report.html \
+            ./hw-rocky-cis-report.html
 
       - name: Run Huawei Ubuntu 24.04 OpenSCAP & Download Report
         if: ${{ matrix.os_config.os == 'Huawei Ubuntu 24.04' }}
@@ -774,13 +780,10 @@ jobs:
             sudo apt-get install -y libopenscap8 unzip wget
             wget -q https://github.com/ComplianceAsCode/content/releases/download/v0.1.75/scap-security-guide-0.1.75.zip
             unzip -q scap-security-guide-0.1.75.zip
-            
-            # Note the updated datastream file for 24.04
             sudo oscap xccdf eval \
               --profile xccdf_org.ssgproject.content_profile_cis_level1_server \
               --report /tmp/hw-ubuntu-2404-cis-report.html \
               scap-security-guide-0.1.75/ssg-ubuntu2404-ds.xml || true
-              
             sudo cp /tmp/hw-ubuntu-2404-cis-report.html /home/sysadmin/
             sudo chown sysadmin:sysadmin /home/sysadmin/hw-ubuntu-2404-cis-report.html
           EOF
@@ -832,7 +835,6 @@ jobs:
           sleep 90
 
           echo "Executing Cinc Auditor against hardened Windows Image..."
-          # Extended 10-attempt loop to outlast Azure provisioning delays
           for i in {1..10}; do
             if cinc-auditor exec https://github.com/dev-sec/windows-baseline \
               -t ssh://azureuser@${{ env.VM_IP }} \
@@ -841,7 +843,6 @@ jobs:
               --input domain_joined=false \
               --backend-cache \
               --reporter html:./windows-cis-report.html json:./windows-cis-report.json cli; then
-              
               echo "Cinc Auditor completed successfully."
               break
             else
@@ -854,9 +855,9 @@ jobs:
           echo "HTML Size: $(du -sh ./windows-cis-report.html | cut -f1 || echo '0')"
           echo "JSON Size: $(du -sh ./windows-cis-report.json | cut -f1 || echo '0')"
 
-      # # ──────────────────────────────────────────────────────────────────────
-      # # TEARDOWN
-      # # ──────────────────────────────────────────────────────────────────────
+      # ──────────────────────────────────────────────────────────────────────
+      # TEARDOWN
+      # ──────────────────────────────────────────────────────────────────────
 
       - name: Prune Empty Reports (Failsafe)
         if: always()
@@ -864,7 +865,6 @@ jobs:
           echo "Removing any 0-byte reports to prevent GitHub Release API errors..."
           find . -maxdepth 1 -name "*-cis-report.*" -type f -size 0 -print -delete
 
-      # NEW: The 3rd Re-auth step. If the scan took 15 minutes, the Azure CLI token is dead!
       - name: Re-authenticate to Azure (Teardown)
         if: always() && env.VM_IP != '' && ${{ !startsWith(matrix.os_config.os, 'Huawei') }}
         uses: azure/login@v3
@@ -890,15 +890,13 @@ jobs:
             --name scan-${{ env.VM_SLUG }}-vmNSG || true
 
       - name: Destroy Ephemeral VM (Huawei)
-        if: always() && env.VM_IP != '' && ${{ startsWith(matrix.os_config.os, 'Huawei') }}
+        if: always() && env.HW_SERVER_ID != '' && ${{ startsWith(matrix.os_config.os, 'Huawei') }}
         run: |
-          EPHEMERAL_NAME="scan-ephemeral-${{ env.VM_SLUG }}"
-
           hcloud ECS DeleteServers \
             --cli-region="${{ vars.HW_LOCATION }}" \
             --servers.0.id="$HW_SERVER_ID" \
             --delete_volume=true || true
-            
+
           hcloud ECS NovaDeleteKeypair \
             --cli-region="${{ vars.HW_LOCATION }}" \
             --keypair_name="scanner-key-${{ github.run_number }}" || true
@@ -911,24 +909,16 @@ jobs:
           path: ./*-cis-report.*
 
       # ──────────────────────────────────────────────────────────────────────
-      # TEARDOWN & RUNNER CLEANUP
+      # RUNNER CLEANUP
       # ──────────────────────────────────────────────────────────────────────
 
       - name: Clean up Self-Hosted Runner State
         if: always()
         run: |
           echo "Cleaning up temporary files to prevent state contamination..."
-
-          # 1. Destroy ephemeral SSH keys
           rm -f ~/.ssh/scanner_key ~/.ssh/scanner_key.pub
-
-          # 3. Clean up compliance reports
           rm -f ./*-cis-report.*
-
-          # 4. Prune Packer crash logs
           rm -f ./crash.log
-
-
           echo "Runner cleanup complete."
 
   # ============================================================
