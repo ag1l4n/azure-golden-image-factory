@@ -460,7 +460,6 @@ jobs:
 
             hcloud IMS ListImages \
               --cli-region="${{ vars.HW_LOCATION }}" \
-              --name="$IMAGE_NAME" \
               --output json > /tmp/ims_list_output.json 2>&1 || true
 
             echo "--- Raw hcloud IMS ListImages output ---"
@@ -471,14 +470,14 @@ jobs:
               exit 1
             fi
 
-            HW_IMAGE_ID=$(jq -r '.images[0].id // empty' /tmp/ims_list_output.json)
+            HW_IMAGE_ID=$(jq -r --arg name "$IMAGE_NAME" \
+              '.images[] | select(.name == $name) | .id // empty' \
+              /tmp/ims_list_output.json | head -1)
 
             if [[ -z "$HW_IMAGE_ID" ]]; then
-              echo "ERROR: No image found with name '$IMAGE_NAME' in region ${{ vars.HW_LOCATION }}"
-              echo "--- Available images ---"
-              hcloud IMS ListImages \
-                --cli-region="${{ vars.HW_LOCATION }}" \
-                --output json | jq -r '.images[] | "\(.name) (\(.id))"' 2>/dev/null || true
+              echo "ERROR: No image found with name '$IMAGE_NAME'"
+              echo "--- Available private images ---"
+              jq -r '.images[] | "\(.name) (\(.id))"' /tmp/ims_list_output.json 2>/dev/null || true
               exit 1
             fi
 
@@ -535,13 +534,13 @@ jobs:
 
             HW_SERVER_ID=$(hcloud ECS ListServers \
               --cli-region="${{ vars.HW_LOCATION }}" \
-              --name="$EPHEMERAL_NAME" \
-              --output json | jq -r '.servers[0].id')
+              --output json | jq -r --arg name "$EPHEMERAL_NAME" \
+              '.servers[] | select(.name == $name) | .id // empty' | head -1)
 
-            VM_IP=$(hcloud ECS ListServers \
-              --cli-region="${{ vars.HW_LOCATION }}" \
-              --id="$HW_SERVER_ID" \
-              --output json | jq -r '.servers[0].addresses | to_entries[0].value[0].addr')
+           VM_IP=$(hcloud ECS ListServers \
+            --cli-region="${{ vars.HW_LOCATION }}" \
+            --output json | jq -r --arg id "$HW_SERVER_ID" \
+            '.servers[] | select(.id == $id) | .addresses | to_entries[0].value[0].addr // empty' | head -1)
 
             echo "VM_IP=$VM_IP" >> $GITHUB_ENV
             echo "HW_SERVER_ID=$HW_SERVER_ID" >> $GITHUB_ENV
