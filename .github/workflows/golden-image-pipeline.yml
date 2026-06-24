@@ -517,8 +517,8 @@ jobs:
             # Insert your loop here to poll job status until SUCCESSful...
 
             # Extract Instance ID and Floating IP
-            HW_SERVER_ID=$(hcloud ECS ListServers --name="scan-ephemeral-${{ env.VM_SLUG }}" --query "servers[0].id" --output text)
-            VM_IP=$(hcloud ECS ListServers --id="$HW_SERVER_ID" --query "servers[0].addresses.*[?type=='floating'].addr" --output text)
+            HW_SERVER_ID=$(hcloud ECS ListServers --name="scan-ephemeral-hw-ubuntu" --query 'servers[0].id' --output text)
+            VM_IP=$(hcloud ECS ListServers --id="$HW_SERVER_ID" --query 'servers[0].addresses.*[0].addr' --output text)
             
             echo "VM_IP=$VM_IP" >> $GITHUB_ENV
             echo "HW_SERVER_ID=$HW_SERVER_ID" >> $GITHUB_ENV
