@@ -471,9 +471,9 @@ jobs:
 
             echo "--- Deploying Ephemeral Scanning Instance ---"
             # Mimicking Packer configuration: flavor='c6.large.2', eip details, and network groupings
-            HW_VM_JSON=$(hcloud ECS CreateServer \
-              --cli-region="${{ vars.HW_LOCATION }}" \
-              --server.name="scan-ephemeral-${{ env.VM_SLUG }}" \
+            RAW_RESPONSE=$(hcloud ECS CreateServer \
+              --cli-region="my-kualalumpur-1" \
+              --server.name="scan-ephemeral-hw-ubuntu" \
               --server.flavor="c6.large.2" \
               --server.imageRef="$HW_IMAGE_ID" \
               --server.vpcid="${{ secrets.HW_VPC_ID }}" \
@@ -486,7 +486,9 @@ jobs:
               --server.publicip.eip.bandwidth.sharetype="PER" \
               --server.publicip.eip.bandwidth.charging_mode="traffic" \
               --server.user_data_file="/tmp/hw_scan_userdata.sh" \
-              --output json)
+              --output json) || { echo "DEBUG: Command failed. Raw output was: $RAW_RESPONSE"; exit 1; }
+
+            HW_VM_JSON=$RAW_RESPONSE
 
             HW_JOB_ID=$(echo "$HW_VM_JSON" | python3 -c "import sys, json; print(json.load(sys.stdin).get('job_id', ''))")
             
