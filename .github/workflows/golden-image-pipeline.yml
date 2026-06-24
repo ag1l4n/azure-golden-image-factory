@@ -490,7 +490,28 @@ jobs:
 
             HW_VM_JSON=$RAW_RESPONSE
 
-            HW_JOB_ID=$(echo "$HW_VM_JSON" | python3 -c "import sys, json; print(json.load(sys.stdin).get('job_id', ''))")
+            HW_JOB_ID=$(hcloud ECS CreateServer \
+              --cli-region="my-kualalumpur-1" \
+              --server.name="scan-ephemeral-hw-ubuntu" \
+              --server.flavor="c6.large.2" \
+              --server.imageRef="$HW_IMAGE_ID" \
+              --server.vpcid="${{ secrets.HW_VPC_ID }}" \
+              --server.nics='[{"subnet_id": "${{ secrets.HW_SUBNET_ID }}"}]' \
+              --server.security_groups='[{"id": "${{ secrets.HW_SECURITY_GROUP_ID }}"}]' \
+              --server.root_volume.volumetype="SAS" \
+              --server.root_volume.size=40 \
+              --server.publicip.eip.iptype="5_bgp" \
+              --server.publicip.eip.bandwidth.size=5 \
+              --server.publicip.eip.bandwidth.sharetype="PER" \
+              --server.publicip.eip.bandwidth.charging_mode="traffic" \
+              --server.user_data_file="/tmp/hw_scan_userdata.sh" \
+              --query "job_id" --output text)
+
+            # Verify job ID was returned
+            if [ -z "$HW_JOB_ID" ] || [ "$HW_JOB_ID" == "None" ]; then
+              echo "ERROR: Failed to retrieve Job ID. The hcloud command failed."
+              exit 1
+            fi
             
             echo "Waiting for VM creation job $HW_JOB_ID to complete..."
             # Insert your loop here to poll job status until SUCCESSful...
