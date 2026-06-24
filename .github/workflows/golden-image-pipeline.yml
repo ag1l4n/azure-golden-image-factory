@@ -458,8 +458,6 @@ jobs:
           if [[ "${{ matrix.os_config.os }}" == *"Huawei"* ]]; then
             # ── Huawei ECS deploy ────────────────────────────────────────
 
-            sudo apt-get update && sudo apt-get install -y jq
-
             echo "--- Fetching Target Image ID ---"
             HW_IMAGE_ID=$(hcloud IMS ListImages \
               --cli-region="${{ vars.HW_LOCATION }}" \
