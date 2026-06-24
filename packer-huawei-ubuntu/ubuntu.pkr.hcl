@@ -62,7 +62,7 @@ build {
   }
 
   provisioner "ansible" {
-    playbook_file   = "../ansible/hardening-playbook.yml"
+    playbook_file   = "../ansible/ubuntu24-hardening-playbook.yml"
     user            = "root"
     use_proxy       = false
     extra_arguments = [

@@ -1,5 +1,5 @@
 ---
-- name: Ubuntu 22.04 CIS Level 1 SCAP Remediations (Cloud Safe)
+- name: Ubuntu 22.04 / 24.04 CIS Level 1 SCAP Remediations (Cloud Safe)
   hosts: all
   become: true
   tasks:
