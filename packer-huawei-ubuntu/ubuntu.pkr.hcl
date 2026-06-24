@@ -89,7 +89,8 @@ build {
       "sudo ln -s /etc/machine-id /var/lib/dbus/machine-id",
       "sudo rm -f /root/.ssh/authorized_keys",
       "sudo rm -f /home/*/.ssh/authorized_keys",
-      "cat /dev/null > ~/.bash_history && history -c",
+      "cat /dev/null > ~/.bash_history && history -c || true",
+      "cat /dev/null > /home/sysadmin/.bash_history || true",
       "sync"
     ]
   }

@@ -309,7 +309,7 @@ jobs:
 
 
       - name: Prepare user_data with PermitRootLogin fix
-        if: ${{ startsWith(matrix.os_config.os, 'Huawei') }}
+        if: ${{ inputs.scan_only != true && startsWith(matrix.os_config.os, 'Huawei') }}
         run: |
           printf '#!/bin/bash\nsed -i "s/^#\\?PermitRootLogin.*/PermitRootLogin yes/" /etc/ssh/sshd_config\nsystemctl restart sshd\n' > /tmp/hw_userdata.sh
           chmod +x /tmp/hw_userdata.sh
@@ -326,7 +326,7 @@ jobs:
             -force
             -var "image_version=${{ needs.prepare.outputs.new_version }}"
           )
-          if [[ "${{ matrix.os_config.os }}" == "Huawei Rocky 9" ]]; then
+          if [[ "${{ matrix.os_config.os }}" == *"Huawei"* ]]; then
             PACKER_ARGS+=(
               -var "user_data_file=/tmp/hw_userdata.sh"
             )
@@ -369,7 +369,7 @@ jobs:
             "Huawei Rocky 9")       echo "name=rocky9-cis-v${{ needs.prepare.outputs.new_version }}"                   >> $GITHUB_OUTPUT ;;            
             "Rocky 9")              echo "name=${{ inputs.rocky_image_name_override   || 'rocky-nvme-cis'  }}"         >> $GITHUB_OUTPUT ;;
             "Windows Server 2022")  echo "name=${{ inputs.windows_image_name_override || 'windows-server-2022-cis' }}" >> $GITHUB_OUTPUT ;;
-            "Huawei Ubuntu 24.04")  echo "name=hw-ubuntu22-cis-v${{ needs.prepare.outputs.new_version }}"              >> $GITHUB_OUTPUT ;;
+            "Huawei Ubuntu 24.04")  echo "name=hw-ubuntu24-cis-v${{ needs.prepare.outputs.new_version }}"              >> $GITHUB_OUTPUT ;;
           esac
 
       - name: Re-authenticate to Azure (pre-scan refresh)
@@ -485,6 +485,7 @@ jobs:
               --server.publicip.eip.bandwidth.size=5 \
               --server.publicip.eip.bandwidth.sharetype="PER" \
               --server.publicip.eip.bandwidth.charging_mode="traffic" \
+              --server.user_data_file="/tmp/hw_scan_userdata.sh" \
               --output json)
 
             HW_JOB_ID=$(echo "$HW_VM_JSON" | python3 -c "import sys, json; print(json.load(sys.stdin).get('job_id', ''))")
@@ -714,38 +715,47 @@ jobs:
         if: ${{ matrix.os_config.os == 'Huawei Rocky 9' }}
         run: |
           ssh -o StrictHostKeyChecking=no -i ~/.ssh/scanner_key \
-              sysadmin@${{ env.VM_IP }} << 'EOF'                 # <--- Changed root to sysadmin
-            sudo dnf install -y openscap-scanner scap-security-guide
+              sysadmin@${{ env.VM_IP }} << 'EOF'
+            sudo apt-get update -qq
+            sudo apt-get install -y libopenscap8 unzip wget
+            wget -q https://github.com/ComplianceAsCode/content/releases/download/v0.1.75/scap-security-guide-0.1.75.zip
+            unzip -q scap-security-guide-0.1.75.zip
+            
+            # Note the updated datastream file for 24.04
             sudo oscap xccdf eval \
               --profile xccdf_org.ssgproject.content_profile_cis_server_l1 \
-              --report /tmp/hw-rocky-cis-report.html \
+              --report /tmp/rocky-cis-report.html \
               /usr/share/xml/scap/ssg/content/ssg-rl9-ds.xml || true
-            sudo cp /tmp/hw-rocky-cis-report.html /home/sysadmin/ # <--- Route to sysadmin home
-            sudo chown sysadmin:sysadmin /home/sysadmin/hw-rocky-cis-report.html
+              
+            sudo cp /tmp/hw-rocky-2404-cis-report.html /home/sysadmin/
+            sudo chown sysadmin:sysadmin /home/sysadmin/hw-rocky-2404-cis-report.html
           EOF
           scp -o StrictHostKeyChecking=no -i ~/.ssh/scanner_key \
-            sysadmin@${{ env.VM_IP }}:/home/sysadmin/hw-rocky-cis-report.html \
-            ./hw-rocky-cis-report.html
+            sysadmin@${{ env.VM_IP }}:/home/sysadmin/hw-rocky-2404-cis-report.html \
+            ./hw-rocky-2404-cis-report.html
 
-      - name: Run Huawei Ubuntu OpenSCAP & Download Report
+      - name: Run Huawei Ubuntu 24.04 OpenSCAP & Download Report
         if: ${{ matrix.os_config.os == 'Huawei Ubuntu 24.04' }}
         run: |
           ssh -o StrictHostKeyChecking=no -i ~/.ssh/scanner_key \
               sysadmin@${{ env.VM_IP }} << 'EOF'
             sudo apt-get update -qq
             sudo apt-get install -y libopenscap8 unzip wget
-            wget -q https://github.com/ComplianceAsCode/content/releases/download/v0.1.74/scap-security-guide-0.1.74.zip
-            unzip -q scap-security-guide-0.1.74.zip
+            wget -q https://github.com/ComplianceAsCode/content/releases/download/v0.1.75/scap-security-guide-0.1.75.zip
+            unzip -q scap-security-guide-0.1.75.zip
+            
+            # Note the updated datastream file for 24.04
             sudo oscap xccdf eval \
               --profile xccdf_org.ssgproject.content_profile_cis_level1_server \
-              --report /tmp/hw-ubuntu-cis-report.html \
-              scap-security-guide-0.1.74/ssg-ubuntu2204-ds.xml || true
-            sudo cp /tmp/hw-ubuntu-cis-report.html /home/sysadmin/
-            sudo chown sysadmin:sysadmin /home/sysadmin/hw-ubuntu-cis-report.html
+              --report /tmp/hw-ubuntu-2404-cis-report.html \
+              scap-security-guide-0.1.75/ssg-ubuntu2404-ds.xml || true
+              
+            sudo cp /tmp/hw-ubuntu-2404-cis-report.html /home/sysadmin/
+            sudo chown sysadmin:sysadmin /home/sysadmin/hw-ubuntu-2404-cis-report.html
           EOF
           scp -o StrictHostKeyChecking=no -i ~/.ssh/scanner_key \
-            sysadmin@${{ env.VM_IP }}:/home/sysadmin/hw-ubuntu-cis-report.html \
-            ./hw-ubuntu-cis-report.html
+            sysadmin@${{ env.VM_IP }}:/home/sysadmin/hw-ubuntu-2404-cis-report.html \
+            ./hw-ubuntu-2404-cis-report.html
 
       - name: Run RHEL OpenSCAP & Download Report
         if: ${{ matrix.os_config.os == 'RHEL 9' }}
