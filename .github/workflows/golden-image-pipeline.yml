@@ -456,18 +456,32 @@ jobs:
       - name: Deploy Ephemeral VM
         run: |
           if [[ "${{ matrix.os_config.os }}" == *"Huawei"* ]]; then
+            
+            IMAGE_NAME="${{ steps.image.outputs.name }}"
+            HW_IMAGE_ID=$(hcloud IMS ListImages \
+              --cli-region="${{ vars.HW_LOCATION }}" \
+              --name="$IMAGE_NAME" \
+              --output json | jq -r '.images[0].id')
+
+            if [[ -z "$HW_IMAGE_ID" || "$HW_IMAGE_ID" == "null" ]]; then
+              echo "ERROR: Could not resolve IMS image ID for '$IMAGE_NAME'"
+              exit 1
+            fi
+
+            echo "Resolved image: $IMAGE_NAME → $HW_IMAGE_ID"
+            echo "HW_IMAGE_ID=$HW_IMAGE_ID" >> $GITHUB_ENV
+
             echo "--- Deploying Ephemeral Scanning Instance ---"
-          
-            # Deploy and capture full output to a file
-            # We remove --output json from the query part and handle it here
+            EPHEMERAL_NAME="scan-ephemeral-${{ env.VM_SLUG }}"
+
             hcloud ECS CreateServer \
               --cli-region="my-kualalumpur-1" \
-              --server.name="scan-ephemeral-hw-ubuntu" \
+              --server.name="$EPHEMERAL_NAME" \
               --server.flavor="c6.large.2" \
               --server.imageRef="$HW_IMAGE_ID" \
               --server.vpcid="${{ secrets.HW_VPC_ID }}" \
-              --server.nics='[{"subnet_id": "${{ secrets.HW_SUBNET_ID }}"}]' \
-              --server.security_groups='[{"id": "${{ secrets.HW_SECURITY_GROUP_ID }}"}]' \
+              --server.nics.0.subnet_id="${{ secrets.HW_SUBNET_ID }}" \
+              --server.security_groups.0.id="${{ secrets.HW_SECURITY_GROUP_ID }}" \
               --server.root_volume.volumetype="SAS" \
               --server.root_volume.size=40 \
               --server.publicip.eip.iptype="5_bgp" \
@@ -476,28 +490,47 @@ jobs:
               --server.publicip.eip.bandwidth.charging_mode="traffic" \
               --server.user_data_file="/tmp/hw_scan_userdata.sh" \
               --output json > create_server_output.json
-            
-            # Check if the file is valid JSON
+
             if ! jq empty create_server_output.json 2>/dev/null; then
               echo "ERROR: hcloud output is not valid JSON. Dumping output:"
               cat create_server_output.json
               exit 1
             fi
 
-            # Extract Job ID
             HW_JOB_ID=$(jq -r '.job_id' create_server_output.json)
             echo "Waiting for VM creation job $HW_JOB_ID to complete..."
-            
-            # ... (Loop to check job status using hcloud ECS GetJob --jobid "$HW_JOB_ID") ...
 
-            # Extract Instance ID
-            HW_SERVER_ID=$(hcloud ECS ListServers --name="scan-ephemeral-hw-ubuntu" --output json | jq -r '.servers[0].id')
-            
-            # Extract IP
-            VM_IP=$(hcloud ECS ListServers --id="$HW_SERVER_ID" --output json | jq -r '.servers[0].addresses | to_entries[0].value[0].addr')
-            
+            for i in {1..30}; do
+              STATUS=$(hcloud ECS GetJob \
+                --cli-region="my-kualalumpur-1" \
+                --jobid="$HW_JOB_ID" \
+                --output json | jq -r '.status')
+              echo "Job status: $STATUS (attempt $i/30)"
+              if [[ "$STATUS" == "SUCCESS" ]]; then break; fi
+              if [[ "$STATUS" == "FAIL" ]]; then
+                echo "ERROR: ECS CreateServer job failed."
+                exit 1
+              fi
+              sleep 10
+              if [[ "$i" -eq 30 ]]; then
+                echo "ERROR: Timed out waiting for VM creation."
+                exit 1
+              fi
+            done
+
+            HW_SERVER_ID=$(hcloud ECS ListServers \
+              --cli-region="my-kualalumpur-1" \
+              --name="$EPHEMERAL_NAME" \
+              --output json | jq -r '.servers[0].id')
+
+            VM_IP=$(hcloud ECS ListServers \
+              --cli-region="my-kualalumpur-1" \
+              --id="$HW_SERVER_ID" \
+              --output json | jq -r '.servers[0].addresses | to_entries[0].value[0].addr')
+
             echo "VM_IP=$VM_IP" >> $GITHUB_ENV
             echo "HW_SERVER_ID=$HW_SERVER_ID" >> $GITHUB_ENV
+            echo "EPHEMERAL_NAME=$EPHEMERAL_NAME" >> $GITHUB_ENV
           else
             # ── Azure deploy ─────────────────────────────────────────────
             IMAGE_ID=$(az sig image-definition show \
@@ -859,12 +892,11 @@ jobs:
       - name: Destroy Ephemeral VM (Huawei)
         if: always() && env.VM_IP != '' && ${{ startsWith(matrix.os_config.os, 'Huawei') }}
         run: |
+          EPHEMERAL_NAME="scan-ephemeral-${{ env.VM_SLUG }}"
+
           hcloud ECS DeleteServers \
             --cli-region="${{ vars.HW_LOCATION }}" \
-            --servers.0.id="$(hcloud ECS ListServers \
-              --cli-region=${{ vars.HW_LOCATION }} \
-              --name=scan-hw-rocky-vm \
-              | python3 -c "import sys,json; print(json.load(sys.stdin)['servers'][0]['id'])")" \
+            --servers.0.id="$HW_SERVER_ID" \
             --delete_volume=true || true
             
           hcloud ECS NovaDeleteKeypair \
