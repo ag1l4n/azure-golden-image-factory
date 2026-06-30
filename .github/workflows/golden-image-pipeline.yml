@@ -1,8 +1,6 @@
 name: Golden Image Factory Pipeline
 
 on:
-  push:
-    branches: [ "main" ]
   workflow_dispatch:
     inputs:
       os_choice:
@@ -16,8 +14,6 @@ on:
           - RHEL 9
           - Rocky 9
           - Windows Server 2022
-          - Huawei Rocky 9
-          - Huawei Ubuntu 24.04
       scan_only:
         description: 'Skip Packer Build (Run Compliance Scan Only)'
         required: true
@@ -86,8 +82,6 @@ jobs:
           CHOICE="${{ inputs.os_choice }}"
           if [[ -z "$CHOICE" || "$CHOICE" == "all" ]]; then
             echo 'matrix=[{"os":"Ubuntu 22.04","runner":"ubuntu-latest"},{"os":"RHEL 9","runner":"ubuntu-latest"},{"os":"Rocky 9","runner":"ubuntu-latest"},{"os":"Windows Server 2022","runner":"ubuntu-latest"}]' >> $GITHUB_OUTPUT
-          elif [[ "$CHOICE" == "Huawei Rocky 9" ]]; then
-            echo 'matrix=[{"os":"Huawei Rocky 9","runner":"self-hosted"}]' >> $GITHUB_OUTPUT
           elif [[ "$CHOICE" == "Ubuntu 22.04" ]]; then
             echo 'matrix=[{"os":"Ubuntu 22.04","runner":"ubuntu-latest"}]' >> $GITHUB_OUTPUT
           elif [[ "$CHOICE" == "RHEL 9" ]]; then
@@ -96,8 +90,6 @@ jobs:
             echo 'matrix=[{"os":"Rocky 9","runner":"ubuntu-latest"}]' >> $GITHUB_OUTPUT
           elif [[ "$CHOICE" == "Windows Server 2022" ]]; then
             echo 'matrix=[{"os":"Windows Server 2022","runner":"ubuntu-latest"}]' >> $GITHUB_OUTPUT
-          elif [[ "$CHOICE" == "Huawei Ubuntu 24.04" ]]; then
-            echo 'matrix=[{"os":"Huawei Ubuntu 24.04","runner":"self-hosted"}]' >> $GITHUB_OUTPUT
           fi
 
   # ============================================================
@@ -132,26 +124,11 @@ jobs:
       PKR_VAR_client_secret:        ${{ secrets.AZURE_CLIENT_SECRET }}
       PKR_VAR_tenant_id:            ${{ secrets.AZURE_TENANT_ID }}
 
-      # ── Huawei Cloud SDK variables (Required for pre-flight auth) ───────
-      HW_ACCESS_KEY:                ${{ secrets.HW_ACCESS_KEY }}
-      HW_SECRET_KEY:                ${{ secrets.HW_SECRET_KEY }}
-      HW_PROJECT_ID:                ${{ secrets.HW_PROJECT_ID }}
-      HW_LOCATION:                  ${{ vars.HW_LOCATION }}
-
-      # ── Huawei Cloud Packer variables (Required for .pkr.hcl) ───────────
-      PKR_VAR_hw_access_key:        ${{ secrets.HW_ACCESS_KEY }}
-      PKR_VAR_hw_secret_key:        ${{ secrets.HW_SECRET_KEY }}
-      PKR_VAR_hw_project_id:        ${{ secrets.HW_PROJECT_ID }}
-      PKR_VAR_hw_vpc_id:            ${{ secrets.HW_VPC_ID }}
-      PKR_VAR_hw_subnet_id:         ${{ secrets.HW_SUBNET_ID }}
-      PKR_VAR_hw_security_group_id: ${{ secrets.HW_SECURITY_GROUP_ID }}
-
     steps:
       - name: Checkout Code
         uses: actions/checkout@v3
 
       - name: Authenticate to Azure
-        if: ${{ !startsWith(matrix.os_config.os, 'Huawei') }}
         uses: azure/login@v3
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
@@ -165,8 +142,6 @@ jobs:
             "RHEL 9")               echo "VM_SLUG=rhel"      >> $GITHUB_ENV ;;
             "Rocky 9")              echo "VM_SLUG=rocky"     >> $GITHUB_ENV ;;
             "Windows Server 2022")  echo "VM_SLUG=windows"   >> $GITHUB_ENV ;;
-            "Huawei Rocky 9")       echo "VM_SLUG=hw-rocky"  >> $GITHUB_ENV ;;
-            "Huawei Ubuntu 24.04")  echo "VM_SLUG=hw-ubuntu" >> $GITHUB_ENV ;;
             *)
               echo "ERROR: Unrecognised OS '${{ matrix.os_config.os }}'"
               exit 1
@@ -180,7 +155,6 @@ jobs:
           az vm image terms accept --urn RedHat:RHEL:9-lvm:latest || true
 
       - name: Ensure Compute Gallery Image Definition Exists
-        if: ${{ !startsWith(matrix.os_config.os, 'Huawei') }}
         run: |
           case "${{ matrix.os_config.os }}" in
             "Ubuntu 22.04")
@@ -282,9 +256,7 @@ jobs:
         working-directory: >-
           ${{ matrix.os_config.os == 'Ubuntu 22.04'         && './packer-ubuntu'
            || matrix.os_config.os == 'RHEL 9'               && './packer-rhel'
-           || matrix.os_config.os == 'Rocky 9'              && './packer-rocky'
-           || matrix.os_config.os == 'Huawei Rocky 9'       && './packer-huawei-rocky'
-           || matrix.os_config.os == 'Huawei Ubuntu 24.04'  && './packer-huawei-ubuntu'
+           || matrix.os_config.os == 'Rocky 9'               && './packer-rocky'
            ||                                                  './packer-windows' }}
 
       - name: Re-authenticate to Azure (Windows — pre-build refresh)
@@ -295,45 +267,18 @@ jobs:
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
-      - name: Configure Huawei Cloud CLI
-        if: ${{ startsWith(matrix.os_config.os, 'Huawei') }}
-        run: |
-          echo "y" | hcloud configure set \
-            --cli-access-key="${{ secrets.HW_ACCESS_KEY }}" \
-            --cli-secret-key="${{ secrets.HW_SECRET_KEY }}" \
-            --cli-project-id="${{ secrets.HW_PROJECT_ID }}" \
-            --cli-region="${{ vars.HW_LOCATION }}" \
-            --cli-skip-secure-verify=true
-
-      - name: Prepare user_data with PermitRootLogin fix
-        if: ${{ inputs.scan_only != true && startsWith(matrix.os_config.os, 'Huawei') }}
-        run: |
-          printf '#!/bin/bash\nsed -i "s/^#\\?PermitRootLogin.*/PermitRootLogin yes/" /etc/ssh/sshd_config\nsystemctl restart sshd\n' > /tmp/hw_userdata.sh
-          chmod +x /tmp/hw_userdata.sh
-          echo "Verifying user_data contents:"
-          cat /tmp/hw_userdata.sh
-          echo "USERDATA_FILE=/tmp/hw_userdata.sh" >> $GITHUB_ENV
-
       - name: Build Golden Image (Linux)
         if: ${{ inputs.scan_only != true && matrix.os_config.os != 'Windows Server 2022' }}
         env:
           PACKER_LOG: "1"
         run: |
-          PACKER_ARGS=(
-            -force
-            -var "image_version=${{ needs.prepare.outputs.new_version }}"
-          )
-          if [[ "${{ matrix.os_config.os }}" == *"Huawei"* ]]; then
-            PACKER_ARGS+=(
-              -var "user_data_file=/tmp/hw_userdata.sh"
-            )
-          fi
-          packer build "${PACKER_ARGS[@]}" .
+          packer build \
+            -force \
+            -var "image_version=${{ needs.prepare.outputs.new_version }}" \
+            .
         working-directory: >-
           ${{ matrix.os_config.os == 'Ubuntu 22.04'         && './packer-ubuntu'
            || matrix.os_config.os == 'RHEL 9'               && './packer-rhel'
-           || matrix.os_config.os == 'Huawei Rocky 9'       && './packer-huawei-rocky'
-           || matrix.os_config.os == 'Huawei Ubuntu 24.04'  && './packer-huawei-ubuntu'
            ||                                                  './packer-rocky' }}
 
       - name: Build Golden Image (Windows)
@@ -363,16 +308,11 @@ jobs:
           case "${{ matrix.os_config.os }}" in
             "Ubuntu 22.04")         echo "name=${{ inputs.ubuntu_image_name_override  || 'ubuntu-nvme-cis' }}"         >> $GITHUB_OUTPUT ;;
             "RHEL 9")               echo "name=${{ inputs.rhel_image_name_override    || 'rhel-nvme-cis'   }}"         >> $GITHUB_OUTPUT ;;
-            # ── FIXED: prefix now matches the actual IMS naming convention ──
-            "Huawei Rocky 9")       echo "name=rocky9-cis-v${{ needs.prepare.outputs.new_version }}"                   >> $GITHUB_OUTPUT ;;
             "Rocky 9")              echo "name=${{ inputs.rocky_image_name_override   || 'rocky-nvme-cis'  }}"         >> $GITHUB_OUTPUT ;;
             "Windows Server 2022")  echo "name=${{ inputs.windows_image_name_override || 'windows-server-2022-cis' }}" >> $GITHUB_OUTPUT ;;
-            # ── FIXED: was 'hw-ubuntu24-cis-v*', actual IMS name is 'ubuntu24.04-cis-v*' ──
-            "Huawei Ubuntu 24.04")  echo "name=ubuntu24.04-cis-v${{ needs.prepare.outputs.new_version }}"              >> $GITHUB_OUTPUT ;;
           esac
 
       - name: Re-authenticate to Azure (pre-scan refresh)
-        if: ${{ !startsWith(matrix.os_config.os, 'Huawei') }}
         uses: azure/login@v3
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
@@ -434,212 +374,99 @@ jobs:
           Write-Output "SSH key injected and sshd restarted."
           PSEOF
 
-      - name: Configure Huawei Cloud CLI (pre-scan)
-        if: ${{ startsWith(matrix.os_config.os, 'Huawei') }}
-        run: |
-          hcloud configure set \
-            --cli-access-key="${{ secrets.HW_ACCESS_KEY }}" \
-            --cli-secret-key="${{ secrets.HW_SECRET_KEY }}" \
-            --cli-region="${{ vars.HW_LOCATION }}"
-
-      - name: Prepare user_data for Pipeline Scanner
-        if: ${{ startsWith(matrix.os_config.os, 'Huawei') }}
-        run: |
-          echo "--- Generating Cloud-Init for Ephemeral Scanner ---"
-          SCANNER_PUB_KEY=$(cat ~/.ssh/scanner_key.pub)
-          printf "#!/bin/bash\nmkdir -p /home/sysadmin/.ssh\necho '$SCANNER_PUB_KEY' >> /home/sysadmin/.ssh/authorized_keys\nchown -R sysadmin:sysadmin /home/sysadmin/.ssh\nchmod 700 /home/sysadmin/.ssh\nchmod 600 /home/sysadmin/.ssh/authorized_keys\n" > /tmp/hw_scan_userdata.sh
-          cat /tmp/hw_scan_userdata.sh
-
       - name: Deploy Ephemeral VM
         run: |
-          if [[ "${{ matrix.os_config.os }}" == *"Huawei"* ]]; then
+          IMAGE_ID=$(az sig image-definition show \
+            --resource-group  ${{ env.AZURE_RG }} \
+            --gallery-name    ${{ env.AZURE_GALLERY }} \
+            --gallery-image-definition ${{ steps.image.outputs.name }} \
+            --query id --output tsv)
 
-            # ── Resolve IMS image ID with validation ──────────────────────
-            IMAGE_NAME="${{ steps.image.outputs.name }}"
-            echo "Resolving IMS image ID for: $IMAGE_NAME"
+          if [[ "${{ matrix.os_config.os }}" == "Windows Server 2022" ]]; then
+            az vm create \
+              --resource-group  ${{ env.AZURE_RG }} \
+              --name            scan-${{ env.VM_SLUG }}-vm \
+              --image           "$IMAGE_ID" \
+              --admin-username  azureuser \
+              --admin-password  "${{ env.WINDOWS_ADMIN_PASS }}" \
+              --location        ${{ env.AZURE_LOCATION }} \
+              --size            ${{ env.VM_SIZE }} \
+              --nic-delete-option delete \
+              --os-disk-delete-option delete
 
-            # Default output is already JSON — no --output flag needed
-            hcloud IMS ListImages \
-              --cli-region="my-kualalumpur-1" \
-              > /tmp/ims_list_output.json 2>&1 || true
+            RUNNER_IP=$(curl -s --max-time 10 https://api.ipify.org)
+            az network nsg rule create \
+              --resource-group ${{ env.AZURE_RG }} \
+              --nsg-name scan-${{ env.VM_SLUG }}-vmNSG \
+              --name Allow-SSH-Pipeline \
+              --priority 1010 \
+              --destination-port-ranges 22 \
+              --source-address-prefixes "$RUNNER_IP/32" \
+              --access Allow \
+              --protocol Tcp
 
-            echo "--- Raw hcloud IMS ListImages output ---"
-            cat /tmp/ims_list_output.json
+            echo 'Write-Output "Starting Pre-Scan Configuration..."' > /tmp/inject-ssh-key.ps1
+            echo 'Set-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System" -Name "LocalAccountTokenFilterPolicy" -Value 1 -Force' >> /tmp/inject-ssh-key.ps1
+            echo '$adminKeysPath = "$env:ProgramData\ssh\administrators_authorized_keys"' >> /tmp/inject-ssh-key.ps1
+            echo 'Set-Content -Path $adminKeysPath -Value "SSH_PUBLIC_KEY_PLACEHOLDER" -Encoding Ascii -Force' >> /tmp/inject-ssh-key.ps1
+            echo 'icacls.exe $adminKeysPath /inheritance:r /grant "*S-1-5-18:(F)" /grant "*S-1-5-32-544:(F)" | Out-Null' >> /tmp/inject-ssh-key.ps1
+            echo '$sshdConfig = "$env:ProgramData\ssh\sshd_config"' >> /tmp/inject-ssh-key.ps1
+            echo '(Get-Content $sshdConfig) -replace "(?m)^#?StrictModes yes", "StrictModes no" | Set-Content $sshdConfig -Encoding Ascii' >> /tmp/inject-ssh-key.ps1
+            echo 'Restart-Service sshd -Force' >> /tmp/inject-ssh-key.ps1
+            echo 'Write-Output "SSH key injected and sshd restarted."' >> /tmp/inject-ssh-key.ps1
 
-            if ! jq empty /tmp/ims_list_output.json 2>/dev/null; then
-              echo "ERROR: hcloud IMS ListImages did not return valid JSON."
-              exit 1
-            fi
+            PUB_KEY=$(cat ~/.ssh/scanner_key.pub)
+            sed -i "s|SSH_PUBLIC_KEY_PLACEHOLDER|${PUB_KEY}|g" /tmp/inject-ssh-key.ps1
 
-            HW_IMAGE_ID=$(jq -r --arg name "$IMAGE_NAME" \
-              '.images[] | select(.name == $name) | .id // empty' \
-              /tmp/ims_list_output.json | head -1)
+            echo "Waiting 60s for VM provisioning to stabilise..."
+            sleep 60
 
-            if [[ -z "$HW_IMAGE_ID" ]]; then
-              echo "ERROR: No image found with name '$IMAGE_NAME'"
-              echo "--- Available images ---"
-              jq -r '.images[] | "\(.name) (\(.id))"' /tmp/ims_list_output.json || true
-              exit 1
-            fi
+            az vm run-command invoke \
+              --resource-group ${{ env.AZURE_RG }} \
+              --name scan-${{ env.VM_SLUG }}-vm \
+              --command-id RunPowerShellScript \
+              --scripts @/tmp/inject-ssh-key.ps1
 
-            echo "Resolved: $IMAGE_NAME → $HW_IMAGE_ID"
-            echo "HW_IMAGE_ID=$HW_IMAGE_ID" >> $GITHUB_ENV
+            AUTO_SHUTDOWN_TIME=$(date -u -d '+2 hours' '+%H%M')
+            az vm auto-shutdown \
+              --resource-group ${{ env.AZURE_RG }} \
+              --name scan-${{ env.VM_SLUG }}-vm \
+              --time "$AUTO_SHUTDOWN_TIME"
 
-            echo "--- Deploying Ephemeral Scanning Instance ---"
-            EPHEMERAL_NAME="scan-ephemeral-${{ env.VM_SLUG }}"
-
-            hcloud ECS CreateServer \
-              --cli-region="my-kualalumpur-1" \
-              --server.name="$EPHEMERAL_NAME" \
-              --server.flavor="c6.large.2" \
-              --server.imageRef="$HW_IMAGE_ID" \
-              --server.vpcid="${{ secrets.HW_VPC_ID }}" \
-              --server.nics.0.subnet_id="${{ secrets.HW_SUBNET_ID }}" \
-              --server.security_groups.0.id="${{ secrets.HW_SECURITY_GROUP_ID }}" \
-              --server.root_volume.volumetype="SAS" \
-              --server.root_volume.size=40 \
-              --server.publicip.eip.iptype="5_bgp" \
-              --server.publicip.eip.bandwidth.size=5 \
-              --server.publicip.eip.bandwidth.sharetype="PER" \
-              --server.publicip.eip.bandwidth.charging_mode="traffic" \
-              --server.user_data_file="/tmp/hw_scan_userdata.sh" \
-              > create_server_output.json
-
-            if ! jq empty create_server_output.json 2>/dev/null; then
-              echo "ERROR: hcloud ECS CreateServer did not return valid JSON. Dumping output:"
-              cat create_server_output.json
-              exit 1
-            fi
-
-            HW_JOB_ID=$(jq -r '.job_id' create_server_output.json)
-            echo "Waiting for VM creation job $HW_JOB_ID to complete..."
-
-            for i in {1..30}; do
-              JOB_OUTPUT=$(hcloud ECS GetJob \
-                --cli-region="my-kualalumpur-1" \
-                --jobid="$HW_JOB_ID")
-              STATUS=$(echo "$JOB_OUTPUT" | jq -r '.status')
-              echo "Job status: $STATUS (attempt $i/30)"
-              if [[ "$STATUS" == "SUCCESS" ]]; then break; fi
-              if [[ "$STATUS" == "FAIL" ]]; then
-                echo "ERROR: ECS CreateServer job failed."
-                exit 1
-              fi
-              sleep 10
-              if [[ "$i" -eq 30 ]]; then
-                echo "ERROR: Timed out waiting for VM creation."
-                exit 1
-              fi
-            done
-
-            HW_SERVER_ID=$(hcloud ECS ListServers \
-              --cli-region="my-kualalumpur-1" \
-              | jq -r --arg name "$EPHEMERAL_NAME" \
-              '.servers[] | select(.name == $name) | .id // empty' | head -1)
-
-            VM_IP=$(hcloud ECS ListServers \
-              --cli-region="my-kualalumpur-1" \
-              | jq -r --arg id "$HW_SERVER_ID" \
-              '.servers[] | select(.id == $id) | .addresses | to_entries[0].value[0].addr // empty' | head -1)
-
-            echo "VM_IP=$VM_IP" >> $GITHUB_ENV
-            echo "HW_SERVER_ID=$HW_SERVER_ID" >> $GITHUB_ENV
-            echo "EPHEMERAL_NAME=$EPHEMERAL_NAME" >> $GITHUB_ENV
+          elif [[ "${{ matrix.os_config.os }}" == "Rocky 9" ]]; then
+            az vm create \
+              --resource-group  ${{ env.AZURE_RG }} \
+              --name            scan-${{ env.VM_SLUG }}-vm \
+              --image           "$IMAGE_ID" \
+              --admin-username  sysadmin \
+              --ssh-key-values  ~/.ssh/scanner_key.pub \
+              --location        ${{ env.AZURE_LOCATION }} \
+              --size            ${{ env.VM_SIZE }} \
+              --plan-publisher  resf \
+              --plan-product    rockylinux-x86_64 \
+              --plan-name       9-base \
+              --nic-delete-option delete \
+              --os-disk-delete-option delete
 
           else
-            # ── Azure deploy ──────────────────────────────────────────────
-            IMAGE_ID=$(az sig image-definition show \
+            az vm create \
               --resource-group  ${{ env.AZURE_RG }} \
-              --gallery-name    ${{ env.AZURE_GALLERY }} \
-              --gallery-image-definition ${{ steps.image.outputs.name }} \
-              --query id --output tsv)
-
-            if [[ "${{ matrix.os_config.os }}" == "Windows Server 2022" ]]; then
-              az vm create \
-                --resource-group  ${{ env.AZURE_RG }} \
-                --name            scan-${{ env.VM_SLUG }}-vm \
-                --image           "$IMAGE_ID" \
-                --admin-username  azureuser \
-                --admin-password  "${{ env.WINDOWS_ADMIN_PASS }}" \
-                --location        ${{ env.AZURE_LOCATION }} \
-                --size            ${{ env.VM_SIZE }} \
-                --nic-delete-option delete \
-                --os-disk-delete-option delete
-
-              RUNNER_IP=$(curl -s --max-time 10 https://api.ipify.org)
-              az network nsg rule create \
-                --resource-group ${{ env.AZURE_RG }} \
-                --nsg-name scan-${{ env.VM_SLUG }}-vmNSG \
-                --name Allow-SSH-Pipeline \
-                --priority 1010 \
-                --destination-port-ranges 22 \
-                --source-address-prefixes "$RUNNER_IP/32" \
-                --access Allow \
-                --protocol Tcp
-
-              echo 'Write-Output "Starting Pre-Scan Configuration..."' > /tmp/inject-ssh-key.ps1
-              echo 'Set-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System" -Name "LocalAccountTokenFilterPolicy" -Value 1 -Force' >> /tmp/inject-ssh-key.ps1
-              echo '$adminKeysPath = "$env:ProgramData\ssh\administrators_authorized_keys"' >> /tmp/inject-ssh-key.ps1
-              echo 'Set-Content -Path $adminKeysPath -Value "SSH_PUBLIC_KEY_PLACEHOLDER" -Encoding Ascii -Force' >> /tmp/inject-ssh-key.ps1
-              echo 'icacls.exe $adminKeysPath /inheritance:r /grant "*S-1-5-18:(F)" /grant "*S-1-5-32-544:(F)" | Out-Null' >> /tmp/inject-ssh-key.ps1
-              echo '$sshdConfig = "$env:ProgramData\ssh\sshd_config"' >> /tmp/inject-ssh-key.ps1
-              echo '(Get-Content $sshdConfig) -replace "(?m)^#?StrictModes yes", "StrictModes no" | Set-Content $sshdConfig -Encoding Ascii' >> /tmp/inject-ssh-key.ps1
-              echo 'Restart-Service sshd -Force' >> /tmp/inject-ssh-key.ps1
-              echo 'Write-Output "SSH key injected and sshd restarted."' >> /tmp/inject-ssh-key.ps1
-
-              PUB_KEY=$(cat ~/.ssh/scanner_key.pub)
-              sed -i "s|SSH_PUBLIC_KEY_PLACEHOLDER|${PUB_KEY}|g" /tmp/inject-ssh-key.ps1
-
-              echo "Waiting 60s for VM provisioning to stabilise..."
-              sleep 60
-
-              az vm run-command invoke \
-                --resource-group ${{ env.AZURE_RG }} \
-                --name scan-${{ env.VM_SLUG }}-vm \
-                --command-id RunPowerShellScript \
-                --scripts @/tmp/inject-ssh-key.ps1
-
-              AUTO_SHUTDOWN_TIME=$(date -u -d '+2 hours' '+%H%M')
-              az vm auto-shutdown \
-                --resource-group ${{ env.AZURE_RG }} \
-                --name scan-${{ env.VM_SLUG }}-vm \
-                --time "$AUTO_SHUTDOWN_TIME"
-
-            elif [[ "${{ matrix.os_config.os }}" == "Rocky 9" ]]; then
-              az vm create \
-                --resource-group  ${{ env.AZURE_RG }} \
-                --name            scan-${{ env.VM_SLUG }}-vm \
-                --image           "$IMAGE_ID" \
-                --admin-username  sysadmin \
-                --ssh-key-values  ~/.ssh/scanner_key.pub \
-                --location        ${{ env.AZURE_LOCATION }} \
-                --size            ${{ env.VM_SIZE }} \
-                --plan-publisher  resf \
-                --plan-product    rockylinux-x86_64 \
-                --plan-name       9-base \
-                --nic-delete-option delete \
-                --os-disk-delete-option delete
-
-            else
-              az vm create \
-                --resource-group  ${{ env.AZURE_RG }} \
-                --name            scan-${{ env.VM_SLUG }}-vm \
-                --image           "$IMAGE_ID" \
-                --admin-username  sysadmin \
-                --ssh-key-values  ~/.ssh/scanner_key.pub \
-                --location        ${{ env.AZURE_LOCATION }} \
-                --size            ${{ env.VM_SIZE }} \
-                --nic-delete-option delete \
-                --os-disk-delete-option delete
-            fi
-
-            VM_IP=$(az vm show -d \
-              -g ${{ env.AZURE_RG }} \
-              -n scan-${{ env.VM_SLUG }}-vm \
-              --query publicIps -o tsv)
-            echo "VM_IP=$VM_IP" >> $GITHUB_ENV
-            sleep 20
+              --name            scan-${{ env.VM_SLUG }}-vm \
+              --image           "$IMAGE_ID" \
+              --admin-username  sysadmin \
+              --ssh-key-values  ~/.ssh/scanner_key.pub \
+              --location        ${{ env.AZURE_LOCATION }} \
+              --size            ${{ env.VM_SIZE }} \
+              --nic-delete-option delete \
+              --os-disk-delete-option delete
           fi
+
+          VM_IP=$(az vm show -d \
+            -g ${{ env.AZURE_RG }} \
+            -n scan-${{ env.VM_SLUG }}-vm \
+            --query publicIps -o tsv)
+          echo "VM_IP=$VM_IP" >> $GITHUB_ENV
+          sleep 20
 
       # ──────────────────────────────────────────────────────────────────────
       # WAIT FOR SSH
@@ -662,22 +489,6 @@ jobs:
               sleep 20
               if [ "$i" -eq 60 ]; then
                 echo "ERROR: SSH never became available."
-                exit 1
-              fi
-            done
-          elif [[ "${{ matrix.os_config.os }}" == *"Huawei"* ]]; then
-            for i in {1..20}; do
-              if ssh -o StrictHostKeyChecking=no \
-                    -o ConnectTimeout=5 \
-                    -i ~/.ssh/scanner_key \
-                    sysadmin@"$VM_IP" exit 0 2>/dev/null; then
-                echo "SSH is up after attempt $i."
-                break
-              fi
-              echo "Attempt $i/20 — SSH not ready, retrying in 10s..."
-              sleep 10
-              if [ "$i" -eq 20 ]; then
-                echo "ERROR: SSH never became available after 200s."
                 exit 1
               fi
             done
@@ -752,43 +563,6 @@ jobs:
           scp -o StrictHostKeyChecking=no -i ~/.ssh/scanner_key \
             sysadmin@${{ env.VM_IP }}:/home/sysadmin/ubuntu-cis-report.html \
             ./ubuntu-cis-report.html
-
-      - name: Run Huawei Rocky OpenSCAP & Download Report
-        if: ${{ matrix.os_config.os == 'Huawei Rocky 9' }}
-        run: |
-          ssh -o StrictHostKeyChecking=no -i ~/.ssh/scanner_key \
-              sysadmin@${{ env.VM_IP }} << 'EOF'
-            sudo dnf install -y openscap-scanner scap-security-guide
-            sudo oscap xccdf eval \
-              --profile xccdf_org.ssgproject.content_profile_cis_server_l1 \
-              --report /tmp/hw-rocky-cis-report.html \
-              /usr/share/xml/scap/ssg/content/ssg-rl9-ds.xml || true
-            sudo cp /tmp/hw-rocky-cis-report.html /home/sysadmin/
-            sudo chown sysadmin:sysadmin /home/sysadmin/hw-rocky-cis-report.html
-          EOF
-          scp -o StrictHostKeyChecking=no -i ~/.ssh/scanner_key \
-            sysadmin@${{ env.VM_IP }}:/home/sysadmin/hw-rocky-cis-report.html \
-            ./hw-rocky-cis-report.html
-
-      - name: Run Huawei Ubuntu 24.04 OpenSCAP & Download Report
-        if: ${{ matrix.os_config.os == 'Huawei Ubuntu 24.04' }}
-        run: |
-          ssh -o StrictHostKeyChecking=no -i ~/.ssh/scanner_key \
-              sysadmin@${{ env.VM_IP }} << 'EOF'
-            sudo apt-get update -qq
-            sudo apt-get install -y libopenscap8 unzip wget
-            wget -q https://github.com/ComplianceAsCode/content/releases/download/v0.1.75/scap-security-guide-0.1.75.zip
-            unzip -q scap-security-guide-0.1.75.zip
-            sudo oscap xccdf eval \
-              --profile xccdf_org.ssgproject.content_profile_cis_level1_server \
-              --report /tmp/hw-ubuntu-2404-cis-report.html \
-              scap-security-guide-0.1.75/ssg-ubuntu2404-ds.xml || true
-            sudo cp /tmp/hw-ubuntu-2404-cis-report.html /home/sysadmin/
-            sudo chown sysadmin:sysadmin /home/sysadmin/hw-ubuntu-2404-cis-report.html
-          EOF
-          scp -o StrictHostKeyChecking=no -i ~/.ssh/scanner_key \
-            sysadmin@${{ env.VM_IP }}:/home/sysadmin/hw-ubuntu-2404-cis-report.html \
-            ./hw-ubuntu-2404-cis-report.html
 
       - name: Run RHEL OpenSCAP & Download Report
         if: ${{ matrix.os_config.os == 'RHEL 9' }}
@@ -865,7 +639,7 @@ jobs:
           find . -maxdepth 1 -name "*-cis-report.*" -type f -size 0 -print -delete
 
       - name: Re-authenticate to Azure (Teardown)
-        if: always() && env.VM_IP != '' && ${{ !startsWith(matrix.os_config.os, 'Huawei') }}
+        if: always() && env.VM_IP != ''
         uses: azure/login@v3
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
@@ -873,7 +647,7 @@ jobs:
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
       - name: Destroy Ephemeral VM (Azure)
-        if: always() && env.VM_IP != '' && ${{ !startsWith(matrix.os_config.os, 'Huawei') }}
+        if: always() && env.VM_IP != ''
         run: |
           az vm delete \
             --resource-group ${{ env.AZURE_RG }} \
@@ -887,18 +661,6 @@ jobs:
           az network nsg delete \
             --resource-group ${{ env.AZURE_RG }} \
             --name scan-${{ env.VM_SLUG }}-vmNSG || true
-
-      - name: Destroy Ephemeral VM (Huawei)
-        if: always() && env.HW_SERVER_ID != '' && ${{ startsWith(matrix.os_config.os, 'Huawei') }}
-        run: |
-          hcloud ECS DeleteServers \
-            --cli-region="${{ vars.HW_LOCATION }}" \
-            --servers.0.id="$HW_SERVER_ID" \
-            --delete_volume=true || true
-
-          hcloud ECS NovaDeleteKeypair \
-            --cli-region="${{ vars.HW_LOCATION }}" \
-            --keypair_name="scanner-key-${{ github.run_number }}" || true
 
       - name: Upload Report Artifact
         if: always()
